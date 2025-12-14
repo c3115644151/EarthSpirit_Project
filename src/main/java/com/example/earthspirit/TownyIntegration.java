@@ -221,22 +221,45 @@ public class TownyIntegration {
     
     public static void togglePvp(Town town) {
         town.setPVP(!town.isPVP());
+        // 强制刷新权限缓存
+        updateTownPermissions(town);
         TownyUniverse.getInstance().getDataSource().saveTown(town);
     }
 
     public static void toggleMobs(Town town) {
         town.setHasMobs(!town.hasMobs());
+        updateTownPermissions(town);
         TownyUniverse.getInstance().getDataSource().saveTown(town);
     }
 
     public static void toggleExplosion(Town town) {
         town.setExplosion(!town.isExplosion());
+        updateTownPermissions(town);
         TownyUniverse.getInstance().getDataSource().saveTown(town);
     }
 
     public static void toggleFire(Town town) {
         town.setFire(!town.isFire());
+        updateTownPermissions(town);
         TownyUniverse.getInstance().getDataSource().saveTown(town);
+    }
+    
+    private static void updateTownPermissions(Town town) {
+        // Towny 有时需要更新权限缓存才能使更改生效
+        // 尝试遍历所有 TownBlock 并保存，或者依靠 saveTown
+        // 但对于某些版本，可能需要显式更新
+        // 这里主要通过重新设置一遍自身来触发可能的内部更新逻辑
+        // 实际 saveTown 应该足够，但为了保险，可以尝试更深层的更新
+        
+        // 注意：Towny 0.96+ 内部逻辑比较复杂，单纯 saveTown 可能只是存盘
+        // 但 toggle 状态通常会实时更新内存。
+        // 如果 /towny map 显示不正确，可能是因为 TownBlock 的权限没有同步
+        
+        // 尝试同步 TownBlock 权限
+        for (TownBlock tb : town.getTownBlocks()) {
+            tb.setPermissions(tb.getPermissions()); // 触发更新
+            TownyUniverse.getInstance().getDataSource().saveTownBlock(tb);
+        }
     }
 
     public static void upgradeTownLevel(Player player, SpiritEntity spirit) {

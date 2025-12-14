@@ -505,6 +505,16 @@ public class SpiritListener implements Listener {
     }
 
     // 2. 强制允许爆炸 (如果 Town 设置开启)
+    // 必须在 LOWEST 备份方块列表，因为 Towny 可能会清空它
+    private final java.util.Map<org.bukkit.event.entity.EntityExplodeEvent, java.util.List<org.bukkit.block.Block>> explosionCache = new java.util.WeakHashMap<>();
+
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onExplosionInit(org.bukkit.event.entity.EntityExplodeEvent event) {
+        if (!event.isCancelled()) {
+            explosionCache.put(event, new java.util.ArrayList<>(event.blockList()));
+        }
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onExplosion(org.bukkit.event.entity.EntityExplodeEvent event) {
         if (event.isCancelled()) {
@@ -512,8 +522,14 @@ public class SpiritListener implements Listener {
             Town town = TownyIntegration.getTownAt(loc);
             if (town != null && TownyIntegration.isExplosionEnabled(town)) {
                 event.setCancelled(false);
+                
+                // 恢复被 Towny 清空的方块列表
+                if (event.blockList().isEmpty() && explosionCache.containsKey(event)) {
+                    event.blockList().addAll(explosionCache.get(event));
+                }
             }
         }
+        explosionCache.remove(event); // 清理缓存
     }
 
     // 3. 强制允许 PVP (如果 Town 设置开启)

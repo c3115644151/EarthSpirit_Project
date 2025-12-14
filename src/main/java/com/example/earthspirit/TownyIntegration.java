@@ -221,47 +221,18 @@ public class TownyIntegration {
     
     public static void togglePvp(Town town, Player player) {
         player.performCommand("town toggle pvp");
-        updateTownPermissions(town);
     }
 
     public static void toggleMobs(Town town, Player player) {
         player.performCommand("town toggle mobs");
-        updateTownPermissions(town);
     }
 
     public static void toggleExplosion(Town town, Player player) {
         player.performCommand("town toggle explosion");
-        updateTownPermissions(town);
     }
 
     public static void toggleFire(Town town, Player player) {
         player.performCommand("town toggle fire");
-        updateTownPermissions(town);
-    }
-    
-    private static void updateTownPermissions(Town town) {
-        // 同步所有 TownBlock 的权限状态
-        for (TownBlock tb : town.getTownBlocks()) {
-            // 显式同步 Town 的权限设置到 TownBlock
-            // 注意：TownBlock 的权限通常是独立的，但在“同步”模式下，应该跟随 Town
-            // 如果 Towny 版本较新，可能需要直接操作 Permissions 对象
-            
-            // 尝试直接设置 TownBlock 的状态位 (如果有对应 API)
-            // 遗憾的是 TownBlock API 并没有直接的 setHasMobs 等方法，它们通常存储在 Permissions 或 Metadata 中
-            
-            // 关键：将 TownBlock 的 Permissions 重置为与 Town 一致
-            // 通过 setPermissions 触发更新，但需要正确的参数
-            // 这里我们采取一个更通用的策略：让 TownBlock 知道它需要更新
-            
-            // 强制保存 TownBlock 会触发一些内部同步
-            tb.getPermissions().pvp = town.isPVP();
-            tb.getPermissions().fire = town.isFire();
-            tb.getPermissions().explosion = town.isExplosion();
-            tb.getPermissions().mobs = town.hasMobs();
-            
-            // 保存更改
-            TownyUniverse.getInstance().getDataSource().saveTownBlock(tb);
-        }
     }
 
     public static void upgradeTownLevel(Player player, SpiritEntity spirit) {

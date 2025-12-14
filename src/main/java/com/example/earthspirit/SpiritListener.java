@@ -22,6 +22,8 @@ import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.EventPriority;
+import com.palmergames.bukkit.towny.object.Town;
 
 public class SpiritListener implements Listener {
     private final EarthSpiritPlugin plugin;
@@ -485,5 +487,68 @@ public class SpiritListener implements Listener {
             p.sendMessage("§a [健康] - 领地保护中");
         }
         p.sendMessage("§8[========================]");
+    }
+
+    // --- 强制执行 Towny 设置 (覆盖全局配置) ---
+
+    // 1. 强制允许怪物生成 (如果 Town 设置开启)
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onMobSpawn(org.bukkit.event.entity.CreatureSpawnEvent event) {
+        if (event.isCancelled()) {
+            org.bukkit.Location loc = event.getLocation();
+            Town town = TownyIntegration.getTownAt(loc);
+            if (town != null && TownyIntegration.isMobsEnabled(town)) {
+                // 如果是地灵领地且允许怪，强制允许
+                event.setCancelled(false);
+            }
+        }
+    }
+
+    // 2. 强制允许爆炸 (如果 Town 设置开启)
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onExplosion(org.bukkit.event.entity.EntityExplodeEvent event) {
+        if (event.isCancelled()) {
+            org.bukkit.Location loc = event.getLocation();
+            Town town = TownyIntegration.getTownAt(loc);
+            if (town != null && TownyIntegration.isExplosionEnabled(town)) {
+                event.setCancelled(false);
+            }
+        }
+    }
+
+    // 3. 强制允许 PVP (如果 Town 设置开启)
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onPVP(org.bukkit.event.entity.EntityDamageByEntityEvent event) {
+        if (event.isCancelled()) {
+            if (event.getEntity() instanceof Player && event.getDamager() instanceof Player) {
+                Town town = TownyIntegration.getTownAt(event.getEntity().getLocation());
+                if (town != null && TownyIntegration.isPvpEnabled(town)) {
+                    event.setCancelled(false);
+                }
+            }
+        }
+    }
+
+    // 4. 强制允许火焰 (如果 Town 设置开启)
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onBlockIgnite(org.bukkit.event.block.BlockIgniteEvent event) {
+        if (event.isCancelled()) {
+            org.bukkit.Location loc = event.getBlock().getLocation();
+            Town town = TownyIntegration.getTownAt(loc);
+            if (town != null && TownyIntegration.isFireEnabled(town)) {
+                event.setCancelled(false);
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onBlockBurn(org.bukkit.event.block.BlockBurnEvent event) {
+        if (event.isCancelled()) {
+            org.bukkit.Location loc = event.getBlock().getLocation();
+            Town town = TownyIntegration.getTownAt(loc);
+            if (town != null && TownyIntegration.isFireEnabled(town)) {
+                event.setCancelled(false);
+            }
+        }
     }
 }

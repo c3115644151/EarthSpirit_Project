@@ -219,47 +219,47 @@ public class TownyIntegration {
         town.setBoard(board);
     }
     
-    public static void togglePvp(Town town) {
-        town.setPVP(!town.isPVP());
-        // 强制刷新权限缓存
+    public static void togglePvp(Town town, Player player) {
+        player.performCommand("town toggle pvp");
         updateTownPermissions(town);
-        TownyUniverse.getInstance().getDataSource().saveTown(town);
     }
 
-    public static void toggleMobs(Town town) {
-        town.setHasMobs(!town.hasMobs());
+    public static void toggleMobs(Town town, Player player) {
+        player.performCommand("town toggle mobs");
         updateTownPermissions(town);
-        TownyUniverse.getInstance().getDataSource().saveTown(town);
     }
 
-    public static void toggleExplosion(Town town) {
-        town.setExplosion(!town.isExplosion());
+    public static void toggleExplosion(Town town, Player player) {
+        player.performCommand("town toggle explosion");
         updateTownPermissions(town);
-        TownyUniverse.getInstance().getDataSource().saveTown(town);
     }
 
-    public static void toggleFire(Town town) {
-        town.setFire(!town.isFire());
+    public static void toggleFire(Town town, Player player) {
+        player.performCommand("town toggle fire");
         updateTownPermissions(town);
-        TownyUniverse.getInstance().getDataSource().saveTown(town);
     }
     
     private static void updateTownPermissions(Town town) {
-        // Towny 有时需要更新权限缓存才能使更改生效
-        // 尝试遍历所有 TownBlock 并保存，或者依靠 saveTown
-        // 但对于某些版本，可能需要显式更新
-        // 这里主要通过重新设置一遍自身来触发可能的内部更新逻辑
-        // 实际 saveTown 应该足够，但为了保险，可以尝试更深层的更新
-        
-        // 注意：Towny 0.96+ 内部逻辑比较复杂，单纯 saveTown 可能只是存盘
-        // 但 toggle 状态通常会实时更新内存。
-        // 如果 /towny map 显示不正确，可能是因为 TownBlock 的权限没有同步
-        
-        // 尝试同步 TownBlock 权限
+        // 同步所有 TownBlock 的权限状态
         for (TownBlock tb : town.getTownBlocks()) {
-            // setPermissions 需要 String 类型，将 TownyPermission 转换为 String
-            // 或者直接跳过这一步，因为 TownBlock 会自动继承 Town 的权限
-            // 只要 saveTownBlock 被调用，应该就会触发刷新
+            // 显式同步 Town 的权限设置到 TownBlock
+            // 注意：TownBlock 的权限通常是独立的，但在“同步”模式下，应该跟随 Town
+            // 如果 Towny 版本较新，可能需要直接操作 Permissions 对象
+            
+            // 尝试直接设置 TownBlock 的状态位 (如果有对应 API)
+            // 遗憾的是 TownBlock API 并没有直接的 setHasMobs 等方法，它们通常存储在 Permissions 或 Metadata 中
+            
+            // 关键：将 TownBlock 的 Permissions 重置为与 Town 一致
+            // 通过 setPermissions 触发更新，但需要正确的参数
+            // 这里我们采取一个更通用的策略：让 TownBlock 知道它需要更新
+            
+            // 强制保存 TownBlock 会触发一些内部同步
+            tb.getPermissions().pvp = town.isPVP();
+            tb.getPermissions().fire = town.isFire();
+            tb.getPermissions().explosion = town.isExplosion();
+            tb.getPermissions().mobs = town.hasMobs();
+            
+            // 保存更改
             TownyUniverse.getInstance().getDataSource().saveTownBlock(tb);
         }
     }

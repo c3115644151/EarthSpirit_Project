@@ -199,16 +199,16 @@ public class SpiritListener implements Listener {
         }
 
         if (clicked.getType() == Material.DIAMOND_SWORD) {
-            TownyIntegration.togglePvp(town);
+            TownyIntegration.togglePvp(town, p);
             SpiritGUI.openManagementMenu(p, spirit); // 刷新
         } else if (clicked.getType() == Material.ZOMBIE_HEAD) {
-            TownyIntegration.toggleMobs(town);
+            TownyIntegration.toggleMobs(town, p);
             SpiritGUI.openManagementMenu(p, spirit);
         } else if (clicked.getType() == Material.TNT) {
-            TownyIntegration.toggleExplosion(town);
+            TownyIntegration.toggleExplosion(town, p);
             SpiritGUI.openManagementMenu(p, spirit);
         } else if (clicked.getType() == Material.FLINT_AND_STEEL) {
-            TownyIntegration.toggleFire(town);
+            TownyIntegration.toggleFire(town, p);
             SpiritGUI.openManagementMenu(p, spirit);
         } else if (clicked.getType() == Material.OAK_SIGN) {
             p.closeInventory();

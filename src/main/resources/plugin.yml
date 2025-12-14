@@ -1,0 +1,10 @@
+name: EarthSpirit
+version: 1.0
+main: com.example.earthspirit.EarthSpiritPlugin
+api-version: 1.21
+authors: [TraeAI]
+softdepend: [Towny]
+commands:
+  getbell:
+    description: 获取灵契风铃
+    permission: earthspirit.admin

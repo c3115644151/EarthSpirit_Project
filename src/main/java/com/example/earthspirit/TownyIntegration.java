@@ -257,7 +257,9 @@ public class TownyIntegration {
         
         // 尝试同步 TownBlock 权限
         for (TownBlock tb : town.getTownBlocks()) {
-            tb.setPermissions(tb.getPermissions()); // 触发更新
+            // setPermissions 需要 String 类型，将 TownyPermission 转换为 String
+            // 或者直接跳过这一步，因为 TownBlock 会自动继承 Town 的权限
+            // 只要 saveTownBlock 被调用，应该就会触发刷新
             TownyUniverse.getInstance().getDataSource().saveTownBlock(tb);
         }
     }

@@ -1,0 +1,28 @@
+# Maven 构建目录 (必须忽略，否则会死循环同步)
+target/
+*.jar
+*.war
+*.ear
+
+# IDE 配置文件 (建议每个人用自己的 IDE 配置，不要同步，防止覆盖)
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+*.iws
+*.ipr
+
+# Java 编译文件
+*.class
+*.log
+*.ctxt
+
+# 操作系统生成的文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Syncthing 自身冲突文件 (防止冲突文件再次同步)
+*.sync-conflict-*

@@ -10,11 +10,9 @@ import com.palmergames.bukkit.towny.object.WorldCoord;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 
-import org.bukkit.Material;
-import org.bukkit.inventory.ItemStack;
-
 public class TownyIntegration {
 
+    @SuppressWarnings("deprecation")
     public static boolean createTown(Player player, String townName, Location location) {
         if (!TownyAPI.getInstance().isTownyWorld(location.getWorld())) {
             player.sendMessage("§c这个世界不支持创建领地！");
@@ -136,6 +134,7 @@ public class TownyIntegration {
         }
     }
 
+    @SuppressWarnings("deprecation")
     public static boolean deleteTown(Player player) {
         try {
             Town town = getTown(player);
@@ -146,6 +145,61 @@ public class TownyIntegration {
             return true;
         } catch (Exception e) {
             e.printStackTrace();
+            return false;
+        }
+    }
+
+    public static boolean unclaim(Player player) {
+        try {
+            Town town = getTown(player);
+            if (town == null) return false;
+
+            TownyUniverse universe = TownyUniverse.getInstance();
+            TownBlock townBlock = universe.getTownBlock(WorldCoord.parseWorldCoord(player.getLocation()));
+            
+            if (townBlock == null || !townBlock.hasTown() || !townBlock.getTown().equals(town)) {
+                return false; // Not in own town
+            }
+            
+            // Check if it's the home block
+            if (town.hasHomeBlock() && town.getHomeBlock().equals(townBlock)) {
+                player.sendMessage("§c你不能废弃城镇的核心区块！如果想解散城镇，请使用“废弃居所”。");
+                return false;
+            }
+
+            universe.getDataSource().removeTownBlock(townBlock);
+            return true;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    public static boolean claimBlock(Player player) {
+        try {
+            Town town = getTown(player);
+            if (town == null) return false;
+
+            if (!TownyAPI.getInstance().isWilderness(player.getLocation())) {
+                player.sendMessage("§c这里已经被占领了！");
+                return false;
+            }
+
+            TownyUniverse universe = TownyUniverse.getInstance();
+            WorldCoord worldCoord = WorldCoord.parseWorldCoord(player.getLocation());
+            com.palmergames.bukkit.towny.object.TownyWorld townyWorld = worldCoord.getTownyWorld();
+            
+            TownBlock townBlock = new TownBlock(worldCoord.getX(), worldCoord.getZ(), townyWorld);
+            townBlock.setTown(town);
+            townBlock.setResident(town.getMayor()); // 归市长所有
+
+            universe.getDataSource().saveTownBlock(townBlock);
+            // universe.getDataSource().saveTown(town); // 通常不需要显式保存 Town，但为了更新缓存可以加上
+
+            return true;
+        } catch (Exception e) {
+            e.printStackTrace();
+            player.sendMessage("§c圈地失败: " + e.getMessage());
             return false;
         }
     }
@@ -221,71 +275,47 @@ public class TownyIntegration {
     
     public static void togglePvp(Town town, Player player) {
         player.performCommand("town toggle pvp");
+        updateTownPermissions(town);
     }
 
     public static void toggleMobs(Town town, Player player) {
         player.performCommand("town toggle mobs");
+        updateTownPermissions(town);
     }
 
     public static void toggleExplosion(Town town, Player player) {
         player.performCommand("town toggle explosion");
+        updateTownPermissions(town);
     }
 
     public static void toggleFire(Town town, Player player) {
         player.performCommand("town toggle fire");
+        updateTownPermissions(town);
     }
-
-    public static void upgradeTownLevel(Player player, SpiritEntity spirit) {
-        int currentLevel = spirit.getLevel();
-        int nextLevel = currentLevel + 1;
-        
-        // 升级配置
-        int expRequired = currentLevel * 100; // Lv1->2: 100, Lv2->3: 200...
-        int diamondCost = currentLevel * 10;  // Lv1->2: 10钻, Lv2->3: 20钻...
-        int bonusBlocks = 2; // 每次升级奖励2个区块
-        
-        Town town = getTown(player);
-        if (town == null) {
-            player.sendMessage("§c你没有领地，无法升级！");
-            return;
+    
+    private static void updateTownPermissions(Town town) {
+        // 同步所有 TownBlock 的权限状态
+        for (TownBlock tb : town.getTownBlocks()) {
+            // 显式同步 Town 的权限设置到 TownBlock
+            // 注意：TownBlock 的权限通常是独立的，但在“同步”模式下，应该跟随 Town
+            // 如果 Towny 版本较新，可能需要直接操作 Permissions 对象
+            
+            // 尝试直接设置 TownBlock 的状态位 (如果有对应 API)
+            // 遗憾的是 TownBlock API 并没有直接的 setHasMobs 等方法，它们通常存储在 Permissions 或 Metadata 中
+            
+            // 关键：将 TownBlock 的 Permissions 重置为与 Town 一致
+            // 通过 setPermissions 触发更新，但需要正确的参数
+            // 这里我们采取一个更通用的策略：让 TownBlock 知道它需要更新
+            
+            // 强制保存 TownBlock 会触发一些内部同步
+            tb.getPermissions().pvp = town.isPVP();
+            tb.getPermissions().fire = town.isFire();
+            tb.getPermissions().explosion = town.isExplosion();
+            tb.getPermissions().mobs = town.hasMobs();
+            
+            // 保存更改
+            TownyUniverse.getInstance().getDataSource().saveTownBlock(tb);
         }
-
-        if (spirit.getExp() < expRequired) {
-            player.sendMessage("§c升级失败！地灵经验不足。");
-            player.sendMessage("§7需要经验: " + expRequired + " (当前: " + spirit.getExp() + ")");
-            player.sendMessage("§7提示: 多喂食、抚摸地灵可增加经验。");
-            return;
-        }
-
-        ItemStack costItem = new ItemStack(Material.DIAMOND, diamondCost);
-        if (!player.getInventory().containsAtLeast(costItem, diamondCost)) {
-            player.sendMessage("§c升级失败！你需要 " + diamondCost + " 个钻石作为贡品。");
-            return;
-        }
-
-        // 执行升级
-        player.getInventory().removeItem(costItem);
-        spirit.setExp(spirit.getExp() - expRequired);
-        spirit.setLevel(nextLevel);
-        
-        try {
-            town.addBonusBlocks(bonusBlocks);
-            TownyUniverse.getInstance().getDataSource().saveTown(town);
-        } catch (Exception e) {
-            e.printStackTrace();
-            player.sendMessage("§c升级成功，但奖励区块发放失败！请联系管理员。");
-        }
-
-        player.sendMessage("§a§l升级成功！地灵成长到了 Lv." + nextLevel + "！");
-        player.sendMessage("§e领地获得了 " + bonusBlocks + " 个额外区块奖励！");
-        player.playSound(player.getLocation(), org.bukkit.Sound.UI_TOAST_CHALLENGE_COMPLETE, 1, 1);
-        
-        // 保存地灵数据 (这里应该有个回调或者事件，暂时假设外部会定期保存，或者手动触发保存)
-        // 实际上 SpiritListener 里并没有立即保存，所以最好这里触发一下保存
-        // 但 TownyIntegration 没有 plugin 引用。
-        // 简单处理：SpiritListener 调用完后，自己 save。或者这里不处理，依赖后续操作。
-        // 最好的办法是让 SpiritManager 单例可访问，或者传递 plugin。
-        // 既然 SpiritListener 传入了 plugin，可以在那里调用 save。
     }
 
     public static void manageMembers(Player player) {
@@ -294,6 +324,16 @@ public class TownyIntegration {
         player.sendMessage("§f- 踢出成员: /town kick <玩家名>");
         player.sendMessage("§f- 查看列表: /town online");
         // 未来可以集成 GUI
+    }
+
+    public static boolean isResident(String townName, Player player) {
+        try {
+            Town town = TownyUniverse.getInstance().getTown(townName);
+            if (town == null) return false;
+            return town.hasResident(player.getName());
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public static Town getTownAt(Location location) {

@@ -18,7 +18,9 @@ public class SpiritSkinManager {
         BLINK,
         HAPPY,
         SAD,
-        ANGRY
+        ANGRY,
+        FLOWER,
+        MINER
     }
 
     private static final Map<Expression, String> TEXTURES = new HashMap<>();
@@ -28,12 +30,16 @@ public class SpiritSkinManager {
         // TODO: 请在此处替换为实际的 Base64 皮肤数据
         // 这里的 Base64 仅为示例 (史莱姆皮肤)
         String slimeBase = "eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvODk1YWVlYzZiODQyYWRhODY2OWY4NDZkNjViYzQ5OTAyZDNiM2IxOGQ0NDFacmVhZDI1YmRjMzZlOWM0ODBEIn19fQ==";
-        
+        String flowerBase = "eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvNDYxNzhhZDUxZmQ2ZDNmZGUwNzAzYzU1OWE2MzFjN2MxY2IyMzRiOGM4YmI0ODlkNzQ3N2U4ZDY2NDY5MiJ9fX0="; // 示例花朵皮肤
+        String minerBase = "eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvZGRhZmIyM2VmYzU3ZDI1MTg3OGU1MzI4ZDExY2I1ZmVjMmYxNDk2NDRjY2Y5YTVkNTI1MjkyNDU2ZTAifX19"; // 示例矿工皮肤
+
         TEXTURES.put(Expression.NORMAL, slimeBase);
-        TEXTURES.put(Expression.BLINK, slimeBase); // 需要替换为闭眼皮肤
-        TEXTURES.put(Expression.HAPPY, slimeBase); // 需要替换为笑眼皮肤
-        TEXTURES.put(Expression.SAD, slimeBase);   // 需要替换为哭泣皮肤
-        TEXTURES.put(Expression.ANGRY, slimeBase); // 需要替换为生气皮肤
+        TEXTURES.put(Expression.BLINK, slimeBase); 
+        TEXTURES.put(Expression.HAPPY, slimeBase); 
+        TEXTURES.put(Expression.SAD, slimeBase);   
+        TEXTURES.put(Expression.ANGRY, slimeBase);
+        TEXTURES.put(Expression.FLOWER, flowerBase);
+        TEXTURES.put(Expression.MINER, minerBase);
     }
 
     public static ItemStack getHead(Expression exp) {

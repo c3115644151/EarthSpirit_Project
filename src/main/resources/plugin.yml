@@ -8,3 +8,6 @@ commands:
   getbell:
     description: 获取灵契风铃
     permission: earthspirit.admin
+  getwand:
+    description: 获取驯兽杖
+    permission: earthspirit.admin

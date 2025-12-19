@@ -1,12 +1,14 @@
 package com.example.earthspirit;
 
-import com.mojang.authlib.GameProfile;
-import com.mojang.authlib.properties.Property;
+import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.SkullMeta;
+import org.bukkit.profile.PlayerProfile;
+import org.bukkit.profile.PlayerTextures;
 
-import java.lang.reflect.Field;
+import java.net.URL;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -58,14 +60,28 @@ public class SpiritSkinManager {
         ItemStack head = new ItemStack(Material.PLAYER_HEAD);
         SkullMeta meta = (SkullMeta) head.getItemMeta();
         
-        GameProfile profile = new GameProfile(UUID.randomUUID(), "");
-        profile.getProperties().put("textures", new Property("textures", base64));
-
         try {
-            Field profileField = meta.getClass().getDeclaredField("profile");
-            profileField.setAccessible(true);
-            profileField.set(meta, profile);
-        } catch (NoSuchFieldException | IllegalAccessException e) {
+            // Decode Base64 to get the texture URL
+            String decoded = new String(Base64.getDecoder().decode(base64));
+            // Extract URL from JSON: {"textures":{"SKIN":{"url":"http://..."}}}
+            int urlStartIndex = decoded.indexOf("\"url\":\"");
+            if (urlStartIndex != -1) {
+                int urlEndIndex = decoded.indexOf("\"", urlStartIndex + 7);
+                if (urlEndIndex != -1) {
+                    String urlStr = decoded.substring(urlStartIndex + 7, urlEndIndex);
+                    
+                    // Use modern PlayerProfile API (1.18+) to avoid reflection issues in 1.21+
+                    PlayerProfile profile = Bukkit.createPlayerProfile(UUID.randomUUID());
+                    PlayerTextures textures = profile.getTextures();
+                    textures.setSkin(java.net.URI.create(urlStr).toURL());
+                    profile.setTextures(textures);
+                    
+                    meta.setOwnerProfile(profile);
+                }
+            }
+        } catch (Exception e) {
+            // Log error but don't crash the task
+            System.err.println("[SpiritSkinManager] Failed to create skull texture: " + e.getMessage());
             e.printStackTrace();
         }
 

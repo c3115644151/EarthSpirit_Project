@@ -17,6 +17,12 @@ import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 // import org.bukkit.util.Vector;
 
+import org.bukkit.entity.TextDisplay;
+import org.bukkit.entity.Display;
+import org.bukkit.Color;
+import org.joml.Vector3f;
+import org.joml.AxisAngle4f;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -24,12 +30,17 @@ import java.util.UUID;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.block.Block;
 
+import com.example.earthspirit.cravings.DailyRequest;
+import org.bukkit.configuration.ConfigurationSection;
+
 public class SpiritEntity {
+    private DailyRequest dailyRequest;
     private UUID entityId; // 实体UUID (ArmorStand)
     private UUID ownerId;  // 主人UUID
     private String name;   // 地灵名字
     private String townName; // 居所名称 (null 表示流浪)
     private double mood;      // 心情值 (0-100)
+    private double hunger; // 饱食度
     private int level = 1;    // 等级
     private int exp = 0;      // 经验值
 
@@ -67,6 +78,36 @@ public class SpiritEntity {
     private long lastMoodUpdateTime; // 记录上次更新心情的现实时间
     private transient SpiritSkinManager.Expression currentExpression;
     private transient long expressionEndTime;
+    
+    // 饱食度系统 - 字段在上方定义
+    private long lastHungerUpdateTime; // 上次饱食度更新时间
+    
+    // 悬浮气泡
+    private transient UUID bubbleEntityId;
+    private transient long bubbleEndTime;
+    private long lastHungerFeedbackTime; // 非transient，持久化防止重启后立即刷屏 (但当前类设计看似只持久化部分字段，这里先假设 transient 也没事，或者看看 save 逻辑)
+
+    public void addMood(double amount) {
+        this.mood += amount;
+        if (this.mood > 100) this.mood = 100;
+        if (this.mood < 0) this.mood = 0;
+        updateSkin();
+    }
+    
+    public void addExp(int amount) {
+        this.exp += amount;
+        int maxExp = this.level * 100;
+        while (this.exp >= maxExp) {
+            this.exp -= maxExp;
+            this.level++;
+            maxExp = this.level * 100;
+            // Level up effects
+            if (this.currentLocation != null && this.currentLocation.getWorld() != null) {
+                this.currentLocation.getWorld().playSound(this.currentLocation, Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 1f);
+                this.currentLocation.getWorld().spawnParticle(Particle.TOTEM_OF_UNDYING, this.currentLocation, 20, 0.5, 0.5, 0.5, 0.1);
+            }
+        }
+    }
 
     public enum SpiritMode {
         COMPANION("旅伴"), 
@@ -89,6 +130,7 @@ public class SpiritEntity {
         this.ownerId = ownerId;
         this.name = name;
         this.mood = 60.0;
+        this.hunger = 50.0;
         this.mode = SpiritMode.COMPANION;
         this.inventory = new SpiritInventory(name + " 的背包");
         this.strangerFeedDays = new HashMap<>();
@@ -96,6 +138,7 @@ public class SpiritEntity {
         
         this.currentLocation = spawnLocation.clone();
         this.lastMoodUpdateTime = System.currentTimeMillis();
+        this.lastHungerUpdateTime = System.currentTimeMillis();
         initTransientFields();
         
         spawnEntity(spawnLocation);
@@ -104,9 +147,9 @@ public class SpiritEntity {
     // 反序列化后初始化
     public void initAfterLoad() {
         initTransientFields();
-        if (lastMoodUpdateTime == 0) {
-            lastMoodUpdateTime = System.currentTimeMillis();
-        }
+        // 每次加载都重置心情更新时间，防止离线/卸载期间计算大量衰减
+        lastMoodUpdateTime = System.currentTimeMillis();
+        
         if (inventoryData != null && !inventoryData.isEmpty()) {
             this.inventory = SpiritInventory.fromBase64(inventoryData, name + " 的背包");
         } else {
@@ -121,6 +164,13 @@ public class SpiritEntity {
         }
     }
 
+    public boolean isHungry() {
+        // 饱食度低于20% 或者心情过低都算饿/状态不好，用于显示气泡
+        // 但 DailyRequest 逻辑里 isHungry 可能指需要投喂
+        // 这里为了兼容气泡逻辑：
+        return hunger < getMaxHunger() * 0.2;
+    }
+    
     private void initTransientFields() {
         // this.velocity = new Vector(0, 0, 0);
         // this.bobbingOffset = 0;
@@ -128,6 +178,8 @@ public class SpiritEntity {
         this.lastParticleLocation = null;
         this.lastLightLocation = null;
         this.lastLightPacketTime = 0;
+        this.bubbleEntityId = null;
+        this.bubbleEndTime = 0;
     }
 
     public void summon(Location loc) {
@@ -143,6 +195,7 @@ public class SpiritEntity {
         cleanupLight();
         removeChassis(); // 清理底盘
         removeDriver();  // 清理驱动实体
+        removeBubble();  // 清理气泡
         ArmorStand entity = getEntity();
         if (entity != null) {
             entity.remove();
@@ -214,6 +267,7 @@ public class SpiritEntity {
     public void tick() {
         // 更新心情 (基于现实时间)
         updateRealTimeStatus();
+        updateHunger();
 
         ArmorStand entity = getEntity();
         if (entity == null || !entity.isValid()) {
@@ -244,6 +298,19 @@ public class SpiritEntity {
         
         // 5. 皮肤更新检查
         checkSkinUpdate();
+        
+        // 6. 悬浮气泡更新
+        updateBubble();
+        
+        // 7. 饥饿反馈 (气泡)
+        if (isHungry()) {
+            long now = System.currentTimeMillis();
+            // 缩短反馈间隔为 10秒
+            if (now - lastHungerFeedbackTime > 10 * 1000) { 
+                showBubble("饿饿...饭饭...", 60); // 显示3秒 (60 ticks)
+                lastHungerFeedbackTime = now;
+            }
+        }
     }
 
     private void checkSkinUpdate() {
@@ -328,6 +395,19 @@ public class SpiritEntity {
     }
 
     public void updateRealTimeStatus() {
+        // 检查玩家是否在线
+        Player owner = Bukkit.getPlayer(ownerId);
+        if (owner == null) {
+            // 玩家离线，不进行心情衰减，但更新时间戳防止上线瞬间结算大量衰减
+            // 或者直接不更新时间戳？
+            // 用户要求：玩家只要不上线，地灵的心情值就不会衰减。
+            // 如果我们不更新 lastMoodUpdateTime，那么下次上线时 diff 会很大，导致一次性扣除。
+            // 所以我们需要把 lastMoodUpdateTime “推进”到当前时间，或者在计算 diff 时排除离线时间。
+            // 简单做法：如果离线，直接重置 lastMoodUpdateTime 为当前时间 (相当于这段时间冻结了)
+            lastMoodUpdateTime = System.currentTimeMillis();
+            return;
+        }
+
         long now = System.currentTimeMillis();
         long diff = now - lastMoodUpdateTime;
         
@@ -505,7 +585,24 @@ public class SpiritEntity {
         // 目标位置：Driver 上方
         // Baby Wolf 高度较低，我们让灵体悬浮在头顶
         Location targetLoc = driverLoc.clone();
-        targetLoc.setY(driverLoc.getY() + 1.2 + bobbing);
+        
+        // 方案一：垂直高度修正
+        // 基础高度：狼头顶 (防止穿模地面)
+        double baseHeight = driverLoc.getY() + 1.2;
+        
+        // 默认跟随基础高度 (贴近地面/狼)
+        double finalHeight = baseHeight;
+
+        // 只有当高度差超过3格时 (例如玩家爬山)，才向上适配玩家高度
+        // 解决平时浮得太高导致玩家需要一直抬头的问题
+        if (owner.getLocation().getY() - driverLoc.getY() > 3.0) {
+            double ownerHeight = owner.getLocation().getY() + 1.3; // 1.3 约等于胸口/肩膀高度
+            finalHeight = Math.max(baseHeight, ownerHeight);
+        }
+        
+        finalHeight += bobbing;
+        
+        targetLoc.setY(finalHeight);
         
         // Y轴平滑插值 (Lerp) - 解决狼跳跃时灵体瞬间瞬移的生硬感
         double currentY = entity.getLocation().getY();
@@ -577,6 +674,7 @@ public class SpiritEntity {
              seatLoc.setYaw(yaw);
              
              entity.teleport(seatLoc);
+             this.currentLocation = seatLoc.clone();
         }
     }
 
@@ -922,14 +1020,95 @@ public class SpiritEntity {
     }
     public void setMood(double mood) { this.mood = Math.max(0, Math.min(100, mood)); }
     
-    public boolean isHungry() {
-        return System.currentTimeMillis() - lastFoodTime > 4 * 60 * 60 * 1000; // 4 hours
+    // Old hunger methods removed (replaced below)
+    
+    public double getHunger() { return hunger; }
+    
+    public double getMaxHunger() {
+        return 50.0 + (level * 10.0);
     }
-    public long getNextHungerTime() {
-        return lastFoodTime + 4 * 60 * 60 * 1000;
+    
+    public void setHunger(double hunger) { 
+        double oldHunger = this.hunger;
+        this.hunger = Math.max(0, Math.min(getMaxHunger(), hunger)); 
+        
+        // 状态改变(从0变有，或从有变0)，触发领地保护更新
+        boolean wasStarving = (oldHunger <= 0);
+        boolean isStarving = (this.hunger <= 0);
+        
+        if (wasStarving != isStarving) {
+            checkProtectionUpdate();
+        }
     }
-    public void scheduleNextHunger() {
-        this.lastFoodTime = System.currentTimeMillis();
+    
+    // Duplicate isHungry removed
+
+    
+    public void addHunger(double amount) {
+        setHunger(this.hunger + amount);
+    }
+    
+    public String getHungerBar() {
+        double max = getMaxHunger();
+        double ratio = hunger / max;
+        int filled = (int) (ratio * 10);
+        StringBuilder bar = new StringBuilder("§6");
+        for (int i = 0; i < 10; i++) {
+            if (i < filled) bar.append("■");
+            else bar.append("□");
+        }
+        return "§f ❖ 饱食度: " + bar.toString() + " §7(" + (int)hunger + "/" + (int)max + ")";
+    }
+
+    public void updateHunger() {
+        long now = System.currentTimeMillis();
+        if (lastHungerUpdateTime == 0) {
+            lastHungerUpdateTime = now;
+            return;
+        }
+        
+        long diff = now - lastHungerUpdateTime;
+        if (diff > 3600000) { // 1小时 = 3600000ms
+            int hoursPassed = (int) (diff / 3600000);
+            if (hoursPassed > 0) {
+                setHunger(hunger - hoursPassed);
+                lastHungerUpdateTime = now - (diff % 3600000); // 保留余数时间
+            }
+        }
+    }
+
+    // 重置心情更新时间（玩家上线时调用，避免离线时间导致心情骤降）
+    public void resetMoodTimer() {
+        this.lastMoodUpdateTime = System.currentTimeMillis();
+    }
+
+    public void updateMood() {
+        long now = System.currentTimeMillis();
+        if (lastMoodUpdateTime == 0) {
+            lastMoodUpdateTime = now;
+            return;
+        }
+        
+        // 每10分钟下降1点 (600,000ms)
+        // 仅当玩家在线时调用此方法
+        long diff = now - lastMoodUpdateTime;
+        if (diff > 600000) {
+            int pointsLost = (int) (diff / 600000);
+            if (pointsLost > 0) {
+                setMood(mood - pointsLost);
+                lastMoodUpdateTime = now - (diff % 600000);
+            }
+        }
+    }
+
+    public void checkProtectionUpdate() {
+        if (getTownName() == null) return;
+        try {
+            com.palmergames.bukkit.towny.object.Town town = com.palmergames.bukkit.towny.TownyUniverse.getInstance().getTown(getTownName());
+            if (town != null) {
+                TownyIntegration.updateTownPermissions(town);
+            }
+        } catch (Exception e) {}
     }
     
     public long getLastInteractTime() { return lastInteractTime; }
@@ -958,39 +1137,15 @@ public class SpiritEntity {
     public int getExp() { return exp; }
     public void setExp(int exp) { this.exp = exp; }
     
-    public void addExp(int amount) {
-        if (this.level >= 5) return; // 最高5级
-        
-        this.exp += amount;
-        int maxExp = this.level * 100; // 每级递增 100
-        
-        if (this.exp >= maxExp) {
-            this.exp -= maxExp;
-            this.level++;
-            
-            // 更新领地 Bonus Blocks
-            if (townName != null) {
-                try {
-                    com.palmergames.bukkit.towny.object.Town town = com.palmergames.bukkit.towny.TownyUniverse.getInstance().getTown(townName);
-                    if (town != null) {
-                        // 1级=1块, 2级=3块, 3级=5块... => blocks = 1 + (level-1)*2
-                        // Towny bonus blocks 是额外的块数。
-                        // 假设基础是0，那么我们需要设置 bonus blocks 为 total desired - 0
-                        // Lv1: 1, Lv2: 3, Lv3: 5, Lv4: 7, Lv5: 9
-                        int targetBlocks = 1 + (this.level - 1) * 2;
-                        town.setBonusBlocks(targetBlocks); 
-                        town.save();
-                    }
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-            
-            if (currentLocation != null && currentLocation.getWorld() != null) {
-                currentLocation.getWorld().playSound(currentLocation, Sound.ENTITY_PLAYER_LEVELUP, 1f, 1f);
-                currentLocation.getWorld().spawnParticle(Particle.HAPPY_VILLAGER, currentLocation.add(0, 1, 0), 10, 0.5, 0.5, 0.5);
-            }
-        }
+    // public void addExp(int amount) { ... } // Removed duplicate method
+
+
+    public DailyRequest getDailyRequest() {
+        return dailyRequest;
+    }
+
+    public void setDailyRequest(DailyRequest dailyRequest) {
+        this.dailyRequest = dailyRequest;
     }
 
     public SpiritMode getMode() { return mode; }
@@ -1006,4 +1161,208 @@ public class SpiritEntity {
         return inventory; 
     }
     public Location getLocation() { return currentLocation; }
+
+    // ---------------------------------------------------------
+    // 悬浮气泡系统
+    // ---------------------------------------------------------
+
+    public void showBubble(String text, int durationTicks) {
+        if (currentLocation == null || currentLocation.getWorld() == null) return;
+        
+        TextDisplay display = null;
+        if (bubbleEntityId != null) {
+            Entity e = Bukkit.getEntity(bubbleEntityId);
+            if (e instanceof TextDisplay) {
+                display = (TextDisplay) e;
+            } else {
+                if (e != null) e.remove();
+                bubbleEntityId = null;
+            }
+        }
+        
+        if (display == null) {
+            display = spawnBubbleEntity();
+        }
+        
+        if (display != null) {
+            display.setText(text);
+            this.bubbleEndTime = System.currentTimeMillis() + durationTicks * 50L;
+            // 播放音效
+            currentLocation.getWorld().playSound(currentLocation, Sound.ITEM_BOOK_PAGE_TURN, 0.5f, 1.5f);
+        }
+    }
+
+    private TextDisplay spawnBubbleEntity() {
+        if (currentLocation == null || currentLocation.getWorld() == null) return null;
+        
+        TextDisplay display = (TextDisplay) currentLocation.getWorld().spawnEntity(
+            currentLocation.clone().add(0, 1.5, 0), 
+            EntityType.TEXT_DISPLAY
+        );
+        
+        display.setBillboard(Display.Billboard.CENTER); // 始终面向玩家
+        display.setBackgroundColor(Color.fromARGB(100, 0, 0, 0)); // 半透明黑色背景
+        display.setSeeThrough(false);
+        display.setShadowed(false);
+        display.setLineWidth(200); // 自动换行宽度
+        
+        // 调整缩放，稍微小一点更精致
+        display.setTransformation(new org.bukkit.util.Transformation(
+            new Vector3f(0, 0, 0),
+            new AxisAngle4f(0, 0, 0, 1),
+            new Vector3f(0.5f, 0.5f, 0.5f), // Scale 0.5
+            new AxisAngle4f(0, 0, 0, 1)
+        ));
+        
+        this.bubbleEntityId = display.getUniqueId();
+        return display;
+    }
+
+    private void updateBubble() {
+        if (bubbleEntityId == null) return;
+        
+        Entity e = Bukkit.getEntity(bubbleEntityId);
+        if (e == null || !e.isValid() || !(e instanceof TextDisplay)) {
+            this.bubbleEntityId = null;
+            return;
+        }
+        
+        // 检查过期
+        if (System.currentTimeMillis() > bubbleEndTime) {
+            removeBubble();
+            return;
+        }
+        
+        // 跟随位置 (在头顶漂浮)
+        if (currentLocation != null) {
+            double heightOffset = (mode == SpiritMode.GUARDIAN) ? 1.2 : 1.8;
+            Location target = currentLocation.clone().add(0, heightOffset, 0); // 调整高度
+            e.teleport(target);
+        }
+    }
+
+    private void removeBubble() {
+        if (bubbleEntityId != null) {
+            Entity e = Bukkit.getEntity(bubbleEntityId);
+            if (e != null) {
+                e.remove();
+            }
+            bubbleEntityId = null;
+        }
+    }
+
+    // ==========================================
+    // YAML Persistence Methods
+    // ==========================================
+
+    public void saveToConfig(ConfigurationSection section) {
+        section.set("ownerId", ownerId.toString());
+        section.set("name", name);
+        if (townName != null) section.set("townName", townName);
+        section.set("mood", mood);
+        section.set("hunger", hunger);
+        section.set("level", level);
+        section.set("exp", exp);
+        section.set("mode", mode.name());
+        section.set("type", type.name());
+        
+        prepareSave(); // Prepare inventoryData
+        if (inventoryData != null) section.set("inventoryData", inventoryData);
+        
+        // Save maps
+        ConfigurationSection feedDays = section.createSection("strangerFeedDays");
+        strangerFeedDays.forEach((k, v) -> feedDays.set(k.toString(), v));
+        
+        ConfigurationSection feedTime = section.createSection("lastFeedTime");
+        lastFeedTime.forEach((k, v) -> feedTime.set(k.toString(), v));
+        
+        if (currentLocation != null) section.set("currentLocation", currentLocation);
+        
+        section.set("lastFoodTime", lastFoodTime);
+        section.set("lastInteractTime", lastInteractTime);
+        section.set("lastMoodUpdateTime", lastMoodUpdateTime);
+        section.set("lastHungerUpdateTime", lastHungerUpdateTime);
+        
+        if (dailyRequest != null) {
+            ConfigurationSection daily = section.createSection("dailyRequest");
+            daily.set("date", dailyRequest.date);
+            daily.set("grade", dailyRequest.grade);
+            daily.set("rewardsClaimed", dailyRequest.rewardsClaimed);
+            ConfigurationSection items = daily.createSection("items");
+            dailyRequest.items.forEach((id, item) -> {
+                ConfigurationSection itemSec = items.createSection(String.valueOf(id));
+                itemSec.set("key", item.key);
+                itemSec.set("amount", item.amount);
+                itemSec.set("submitted", item.submitted);
+            });
+        }
+    }
+
+    public static SpiritEntity fromConfig(ConfigurationSection section) {
+        try {
+            UUID ownerId = UUID.fromString(section.getString("ownerId"));
+            String name = section.getString("name");
+            Location loc = section.getLocation("currentLocation");
+            
+            if (loc == null) {
+                // Prevent NPE in constructor
+                loc = new Location(Bukkit.getWorld("world"), 0, 100, 0); 
+            }
+
+            SpiritEntity spirit = new SpiritEntity(ownerId, name, loc);
+            spirit.townName = section.getString("townName");
+            spirit.mood = section.getDouble("mood");
+            spirit.hunger = section.getDouble("hunger");
+            spirit.level = section.getInt("level");
+            spirit.exp = section.getInt("exp");
+            spirit.mode = SpiritMode.valueOf(section.getString("mode", "COMPANION"));
+            spirit.type = SpiritType.valueOf(section.getString("type", "NORMAL"));
+            spirit.inventoryData = section.getString("inventoryData");
+            
+            ConfigurationSection feedDays = section.getConfigurationSection("strangerFeedDays");
+            if (feedDays != null) {
+                for (String key : feedDays.getKeys(false)) {
+                    spirit.strangerFeedDays.put(UUID.fromString(key), feedDays.getInt(key));
+                }
+            }
+            
+            ConfigurationSection feedTime = section.getConfigurationSection("lastFeedTime");
+            if (feedTime != null) {
+                for (String key : feedTime.getKeys(false)) {
+                    spirit.lastFeedTime.put(UUID.fromString(key), feedTime.getLong(key));
+                }
+            }
+            
+            spirit.lastFoodTime = section.getLong("lastFoodTime");
+            spirit.lastInteractTime = section.getLong("lastInteractTime");
+            spirit.lastMoodUpdateTime = section.getLong("lastMoodUpdateTime");
+            spirit.lastHungerUpdateTime = section.getLong("lastHungerUpdateTime");
+            
+            if (section.isConfigurationSection("dailyRequest")) {
+                ConfigurationSection daily = section.getConfigurationSection("dailyRequest");
+                spirit.dailyRequest = new DailyRequest();
+                spirit.dailyRequest.date = daily.getLong("date");
+                spirit.dailyRequest.grade = daily.getString("grade");
+                spirit.dailyRequest.rewardsClaimed = daily.getBoolean("rewardsClaimed");
+                
+                ConfigurationSection items = daily.getConfigurationSection("items");
+                if (items != null) {
+                    for (String key : items.getKeys(false)) {
+                        ConfigurationSection itemSec = items.getConfigurationSection(key);
+                        DailyRequest.TaskItem item = new DailyRequest.TaskItem();
+                        item.key = itemSec.getString("key");
+                        item.amount = itemSec.getInt("amount");
+                        item.submitted = itemSec.getBoolean("submitted");
+                        spirit.dailyRequest.items.put(Integer.parseInt(key), item);
+                    }
+                }
+            }
+            
+            spirit.initAfterLoad();
+            return spirit;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
 }

@@ -11,13 +11,31 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.Collections;
 
+import com.example.earthspirit.cravings.CravingManager;
+
 public class EarthSpiritPlugin extends JavaPlugin {
+    private static EarthSpiritPlugin instance;
+
+    public static EarthSpiritPlugin getInstance() {
+        return instance;
+    }
+
     private SpiritManager manager;
     private SpiritTask task;
+    private CravingManager cravingManager;
 
     @Override
     public void onEnable() {
+        instance = this;
+        
+        // 初始化 BiomeGifts 集成
+        BiomeGiftsHelper.init();
+
         // 初始化管理器
+        this.cravingManager = new CravingManager(this);
+        
+        // 启动粒子效果任务 (每5秒运行一次)
+        new SpiritParticleTask(this).runTaskTimer(this, 100L, 100L);
         this.manager = new SpiritManager(this);
 
         // 注册监听器
@@ -56,6 +74,10 @@ public class EarthSpiritPlugin extends JavaPlugin {
 
     public SpiritManager getManager() {
         return manager;
+    }
+
+    public CravingManager getCravingManager() {
+        return cravingManager;
     }
 
     @Override

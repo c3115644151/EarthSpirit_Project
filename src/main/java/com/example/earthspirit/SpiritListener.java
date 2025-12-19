@@ -24,6 +24,15 @@ import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.Location;
 import org.bukkit.Particle;
 
+import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.block.BlockGrowEvent;
+import org.bukkit.event.block.BlockDropItemEvent;
+import org.bukkit.block.data.Ageable;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+
 import org.bukkit.event.entity.EntityTargetEvent;
 import org.bukkit.entity.Wolf;
 import org.bukkit.entity.Monster;
@@ -33,8 +42,33 @@ import org.bukkit.entity.Shulker;
 import org.bukkit.entity.Ghast;
 import org.bukkit.entity.MagmaCube;
 
+import com.example.earthspirit.cravings.DailyRequest;
+import com.example.earthspirit.cravings.CravingManager;
+
+import org.bukkit.event.block.BlockBreakEvent;
+import java.lang.reflect.Method;
+import java.lang.reflect.Field;
+import java.util.concurrent.ThreadLocalRandom;
+
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
+
 public class SpiritListener implements Listener {
-    private final EarthSpiritPlugin plugin;
+    // ... existing fields ...
+
+    @EventHandler
+    public void onJoin(PlayerJoinEvent event) {
+        // 玩家上线，重置心情衰减计时器，避免离线期间的时间差导致心情骤降
+        SpiritEntity spirit = plugin.getManager().getSpiritByOwner(event.getPlayer().getUniqueId());
+        if (spirit != null) {
+            spirit.resetMoodTimer();
+        }
+    }
+
+    // Duplicate onInventoryClick removed
+
+
+    // ... existing code ...
     private final Set<UUID> editingBoard = new HashSet<>();
     private final java.util.Map<UUID, UUID> editingName = new java.util.HashMap<>(); // 地灵改名 (Player -> SpiritID)
     private final java.util.Map<UUID, UUID> editingTownName = new java.util.HashMap<>(); // 居所改名 (Player -> SpiritID)
@@ -45,6 +79,8 @@ public class SpiritListener implements Listener {
     // 记录玩家当前正在查看哪个地灵 (Player UUID -> Spirit Entity UUID)
     private final java.util.Map<UUID, UUID> viewingSpirit = new java.util.HashMap<>();
 
+    private final EarthSpiritPlugin plugin;
+    
     public SpiritListener(EarthSpiritPlugin plugin) {
         this.plugin = plugin;
     }
@@ -80,7 +116,17 @@ public class SpiritListener implements Listener {
         ItemStack item = p.getInventory().getItemInMainHand();
 
         // 检查是否是灵契风铃
-        if (item.getType() == Material.BELL && item.hasItemMeta() && item.getItemMeta().hasDisplayName() && item.getItemMeta().getDisplayName().contains("灵契风铃")) {
+        // 优先检查 CustomModelData (10001)，其次检查名字兼容旧物品
+        boolean isSpiritBell = false;
+        if (item.getType() == Material.BELL) {
+            if (item.hasItemMeta() && item.getItemMeta().hasCustomModelData() && item.getItemMeta().getCustomModelData() == 10001) {
+                isSpiritBell = true;
+            } else if (item.hasItemMeta() && item.getItemMeta().hasDisplayName() && item.getItemMeta().getDisplayName().contains("灵契风铃")) {
+                isSpiritBell = true;
+            }
+        }
+
+        if (isSpiritBell) {
             event.setCancelled(true);
 
             // 获取玩家的地灵数据
@@ -132,8 +178,17 @@ public class SpiritListener implements Listener {
         ItemStack item = p.getInventory().getItemInMainHand();
         
         // 检查物品: 烈焰棒 (驯兽杖)
-        if (item.getType() != Material.BLAZE_ROD) return;
-        if (!item.hasItemMeta() || !item.getItemMeta().hasDisplayName() || !item.getItemMeta().getDisplayName().contains("驯兽")) return;
+        // 优先检查 CustomModelData (10002)，其次检查名字
+        boolean isWand = false;
+        if (item.getType() == Material.BLAZE_ROD) {
+            if (item.hasItemMeta() && item.getItemMeta().hasCustomModelData() && item.getItemMeta().getCustomModelData() == 10002) {
+                isWand = true;
+            } else if (item.hasItemMeta() && item.getItemMeta().hasDisplayName() && item.getItemMeta().getDisplayName().contains("驯兽")) {
+                isWand = true;
+            }
+        }
+        
+        if (!isWand) return;
 
         event.setCancelled(true);
         SpiritEntity spirit = plugin.getManager().getSpiritByOwner(p.getUniqueId());
@@ -207,19 +262,38 @@ public class SpiritListener implements Listener {
     @EventHandler
     public void onClose(InventoryCloseEvent event) {
         UUID uuid = event.getPlayer().getUniqueId();
+        // If switching menus, do NOT remove the viewing spirit session.
+        // The switchingMenus set is cleaned up by a delayed task.
         if (switchingMenus.contains(uuid)) {
-            switchingMenus.remove(uuid);
             return;
         }
         viewingSpirit.remove(uuid);
+    }
+
+    /**
+     * Safely switches menus by preserving the session for a short duration
+     * to allow InventoryCloseEvent to be ignored.
+     */
+    private void safeSwitch(Player p, Runnable openAction) {
+        switchingMenus.add(p.getUniqueId());
+        openAction.run();
+        new org.bukkit.scheduler.BukkitRunnable() {
+            @Override
+            public void run() {
+                switchingMenus.remove(p.getUniqueId());
+            }
+        }.runTaskLater(plugin, 5L); // 5 ticks delay to cover transition
     }
 
     // 3. 处理 GUI 点击事件
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
         String title = event.getView().getTitle();
-        if (!title.equals(SpiritGUI.GUI_TITLE) && !title.equals(SpiritGUI.SUB_GUI_TITLE)) return;
+        // Allow clicks in player inventory unless it's a special GUI
+        if (!title.equals(SpiritGUI.GUI_TITLE) && !title.equals(SpiritGUI.SUB_GUI_TITLE) && !title.startsWith("嘴馋清单 - ")) return;
+        
         event.setCancelled(true); // 禁止拿取物品
+        if (event.getCurrentItem() == null) return; // Allow empty clicks but event is cancelled
 
         Player p = (Player) event.getWhoClicked();
         ItemStack clicked = event.getCurrentItem();
@@ -237,9 +311,80 @@ public class SpiritListener implements Listener {
         }
 
         if (title.equals(SpiritGUI.GUI_TITLE)) {
+            // Removed slot 15 interception to allow feed logic in handleMainMenuClick
             handleMainMenuClick(p, clicked, targetSpirit);
         } else if (title.equals(SpiritGUI.SUB_GUI_TITLE)) {
             handleManagementMenuClick(p, clicked, targetSpirit);
+        } else if (title.startsWith("嘴馋清单 - ")) {
+            handleCravingsMenuClick(p, clicked, targetSpirit, event.getRawSlot());
+        }
+    }
+
+    private void handleCravingsMenuClick(Player player, ItemStack clicked, SpiritEntity spirit, int slot) {
+            DailyRequest req = spirit.getDailyRequest();
+            if (req == null) return;
+
+            // Back Button
+            if (slot == 36) {
+                safeSwitch(player, () -> SpiritGUI.openMenu(player, spirit));
+                return;
+            }
+            
+            // Refresh Button
+            if (slot == 44 && clicked.getType() == Material.RED_DYE) {
+                plugin.getCravingManager().forceRefresh(spirit);
+                player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 1, 1);
+                safeSwitch(player, () -> SpiritGUI.openCravingsMenu(player, spirit));
+                return;
+            }
+            
+            // Claim Reward Button
+            if (slot == 40) {
+                 plugin.getCravingManager().claimReward(player, spirit);
+                 player.playSound(player.getLocation(), Sound.UI_BUTTON_CLICK, 1, 1);
+                 safeSwitch(player, () -> SpiritGUI.openCravingsMenu(player, spirit));
+                 return;
+            }
+            
+            // Task Items (20-24)
+            if (slot >= 20 && slot <= 24) {
+                int index = slot - 20;
+                DailyRequest.TaskItem task = req.items.get(index);
+                if (task != null && !task.submitted) {
+                    // Check logic
+                    int has = SpiritGUI.countItems(player, task.key, plugin.getCravingManager());
+                    if (has >= task.amount) {
+                        // Submit!
+                        removeItems(player, task.key, task.amount, plugin.getCravingManager());
+                        task.submitted = true;
+                        player.playSound(player.getLocation(), Sound.ENTITY_GENERIC_EAT, 1, 1);
+                        player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_BURP, 1, 1);
+                        
+                        // Re-open to refresh view
+                        safeSwitch(player, () -> SpiritGUI.openCravingsMenu(player, spirit));
+                        
+                    } else {
+                        player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1, 1);
+                        player.sendMessage("§c物品不足！");
+                    }
+                }
+            }
+    }
+
+    private void removeItems(Player p, String key, int amount, CravingManager mgr) {
+        ItemStack target = mgr.getItemStack(key);
+        int toRemove = amount;
+        for (ItemStack is : p.getInventory().getContents()) {
+            if (is != null && is.isSimilar(target)) {
+                if (is.getAmount() <= toRemove) {
+                    toRemove -= is.getAmount();
+                    is.setAmount(0);
+                } else {
+                    is.setAmount(is.getAmount() - toRemove);
+                    toRemove = 0;
+                }
+                if (toRemove <= 0) break;
+            }
         }
     }
 
@@ -250,11 +395,12 @@ public class SpiritListener implements Listener {
         } else if (clicked.getType() == Material.CAKE) { // 投喂
             handleFeed(p, spirit, null);
             p.closeInventory();
+        } else if (clicked.getType() == Material.PAPER) { // 嘴馋清单
+            safeSwitch(p, () -> SpiritGUI.openCravingsMenu(p, spirit));
         } else if (clicked.getType() == Material.EMERALD) { // 居所管理 / 领地功能
             if (spirit.getMode() == SpiritEntity.SpiritMode.GUARDIAN) {
                 // 只有守护模式才能管理领地
-                switchingMenus.add(p.getUniqueId());
-                SpiritGUI.openManagementMenu(p, spirit);
+                safeSwitch(p, () -> SpiritGUI.openManagementMenu(p, spirit));
             } else {
                 p.sendMessage("§c地灵需要处于守护灵形态才能管理领地。(Shift+右键切换)");
             }
@@ -333,8 +479,7 @@ public class SpiritListener implements Listener {
 
     private void handleManagementMenuClick(Player p, ItemStack clicked, SpiritEntity spirit) {
         if (clicked.getType() == Material.ARROW) { // 返回
-            switchingMenus.add(p.getUniqueId());
-            SpiritGUI.openMenu(p, spirit);
+            safeSwitch(p, () -> SpiritGUI.openMenu(p, spirit));
             return;
         }
 
@@ -369,20 +514,16 @@ public class SpiritListener implements Listener {
 
         if (clicked.getType() == Material.DIAMOND_SWORD) {
             TownyIntegration.togglePvp(town, p);
-            switchingMenus.add(p.getUniqueId());
-            SpiritGUI.openManagementMenu(p, spirit); 
+            safeSwitch(p, () -> SpiritGUI.openManagementMenu(p, spirit));
         } else if (clicked.getType() == Material.ZOMBIE_HEAD) {
             TownyIntegration.toggleMobs(town, p);
-            switchingMenus.add(p.getUniqueId());
-            SpiritGUI.openManagementMenu(p, spirit);
+            safeSwitch(p, () -> SpiritGUI.openManagementMenu(p, spirit));
         } else if (clicked.getType() == Material.TNT) {
             TownyIntegration.toggleExplosion(town, p);
-            switchingMenus.add(p.getUniqueId());
-            SpiritGUI.openManagementMenu(p, spirit);
+            safeSwitch(p, () -> SpiritGUI.openManagementMenu(p, spirit));
         } else if (clicked.getType() == Material.FLINT_AND_STEEL) {
             TownyIntegration.toggleFire(town, p);
-            switchingMenus.add(p.getUniqueId());
-            SpiritGUI.openManagementMenu(p, spirit);
+            safeSwitch(p, () -> SpiritGUI.openManagementMenu(p, spirit));
         } else if (clicked.getType() == Material.OAK_SIGN) {
             p.closeInventory();
             editingBoard.add(p.getUniqueId());
@@ -454,32 +595,119 @@ public class SpiritListener implements Listener {
             return;
         }
 
-        boolean isHungry = spirit.isHungry();
+        boolean isHungry = spirit.isHungry(); // < 20%
         double mood = spirit.getMood();
-
-        if (!isHungry && mood >= 80) {
-            p.sendMessage("§a" + spirit.getName() + "：我不饿，而且心情还不错！");
-            return;
-        }
-
+        // int hungerValue = getFoodHungerValue(foodToUse.getType()); 
         foodToUse.setAmount(foodToUse.getAmount() - 1);
-        // spirit.feed(p); // 已移除旧方法，逻辑在此处处理
-
+        
+        // 投喂逻辑调整
+        // 1. 饥饿状态 (isHungry)
         if (isHungry) {
-            spirit.setMood(mood + 5);
-            spirit.addExp(5);
-            spirit.scheduleNextHunger();
-            p.sendMessage("§e你喂食了" + spirit.getName() + "，它看起来很满足！(心情 +5, 经验 +5)");
-        } else {
-            // mood < 80 且不饿，可以投喂
-            spirit.setMood(mood + 2);
-            // 零食不加经验
-            p.sendMessage("§e你给" + spirit.getName() + " 喂了一些零食。(心情 +2)");
+            // 80% +5 mood, 20% +10 mood
+            // 80% +5 exp, 20% +10 exp
+            // +5 hunger
+            boolean bonus = ThreadLocalRandom.current().nextDouble() < 0.2;
+            double moodAdd = bonus ? 10 : 5;
+            int expAdd = bonus ? 10 : 5;
+            int hungerAdd = 5;
+            
+            spirit.addMood(moodAdd);
+            spirit.addExp(expAdd);
+            spirit.addHunger(hungerAdd);
+            
+            p.sendMessage("§e你喂食了" + spirit.getName() + "，它看起来很满足！");
+            p.sendMessage("§f(心情 +" + (int)moodAdd + ", 经验 +" + expAdd + ", 饱食度 +" + hungerAdd + ")");
+        } 
+        // 2. 非饥饿，心情 < 80
+        else if (mood < 80) {
+            // 心情+1, 饱食度+1
+            spirit.addMood(1);
+            spirit.addHunger(1);
+            
+            p.sendMessage("§e你给" + spirit.getName() + " 喂了一些零食。(心情 +1, 饱食度 +1)");
+        } 
+        // 3. 非饥饿，心情 >= 80
+        else {
+            // 仅加1点饱食度
+            spirit.addHunger(1);
+            p.sendMessage("§e" + spirit.getName() + " 吃饱了，心情没有变化。(饱食度 +1)");
         }
 
         spirit.setExpression(SpiritSkinManager.Expression.HAPPY, 100);
         p.playSound(p.getLocation(), Sound.ENTITY_GENERIC_EAT, 1, 1);
         plugin.getManager().saveData();
+    }
+
+    private int getFoodHungerValue(Material m) {
+        switch (m) {
+            // High Tier (10+)
+            case RABBIT_STEW: return 10;
+            case CAKE: return 14; // Special case for whole cake
+            
+            // Meat & High Value (8)
+            case COOKED_BEEF:
+            case COOKED_PORKCHOP:
+            case PUMPKIN_PIE:
+                return 8;
+
+            // Good Value (6)
+            case COOKED_CHICKEN:
+            case COOKED_MUTTON:
+            case COOKED_SALMON:
+            case GOLDEN_CARROT:
+            case MUSHROOM_STEW:
+            case BEETROOT_SOUP:
+            case SUSPICIOUS_STEW:
+                return 6;
+                
+            // Medium Value (5)
+            case BREAD:
+            case BAKED_POTATO:
+            case COOKED_COD:
+                return 5;
+                
+            // Fruit & Others (4)
+            case APPLE:
+            case GOLDEN_APPLE:
+            case ENCHANTED_GOLDEN_APPLE:
+            case ROTTEN_FLESH:
+                return 4;
+                
+            // Raw Meat & Low Veg (3)
+            case CARROT:
+            case BEEF:
+            case PORKCHOP:
+            case RABBIT:
+            case CHICKEN:
+            case MUTTON: // Raw
+                return 3;
+                
+            // Snacks (2)
+            case COOKIE:
+            case MELON_SLICE:
+            case SWEET_BERRIES:
+            case GLOW_BERRIES:
+            case COD:
+            case SALMON:
+            case SPIDER_EYE:
+                return 2;
+                
+            // Tiny (1)
+            case DRIED_KELP:
+            case POTATO:
+            case BEETROOT:
+            case TROPICAL_FISH:
+            case PUFFERFISH:
+                return 1;
+                
+            case HONEY_BOTTLE:
+                return 6;
+                
+            default:
+                // 如果是其他可食用物品 (模组物品等)，默认给2
+                if (m.isEdible()) return 2;
+                return 0;
+        }
     }
 
     @EventHandler
@@ -523,6 +751,206 @@ public class SpiritListener implements Listener {
         }
     }
 
+    @EventHandler
+    public void onEntityDamage(EntityDamageEvent event) {
+        if (!(event.getEntity() instanceof Player)) return;
+        Player p = (Player) event.getEntity();
+        
+        // 检查是否在自己的城镇
+        com.palmergames.bukkit.towny.object.Town town = TownyIntegration.getTownAt(p.getLocation());
+        if (town == null) return;
+        
+        if (!TownyIntegration.isResident(town.getName(), p)) return;
+        
+        // 获取地灵
+        SpiritEntity spirit = null;
+        try {
+             // 假设市长是主人，或者直接通过 Town 获取关联 Spirit (如果 SpiritEntity 有记录 townName)
+             // 更好的方式是遍历所有 spirits 找到 townName 匹配的
+             // 这里为了性能，我们假设 SpiritManager 可以缓存 Town->Spirit 映射，或者我们直接找玩家的 Spirit (如果他是主人)
+             
+             // 如果玩家是 Resident，他可能不是 Owner。
+             // 我们需要找到这个 Town 的 Owner Spirit。
+             // TownyIntegration.getTown(p) 获取的是 p 所属的 Town，但这里我们要获取 p 所在位置的 Town 的 Spirit。
+             
+             // 暂时通过市长查找
+             com.palmergames.bukkit.towny.object.Resident mayor = town.getMayor();
+             if (mayor != null) {
+                 spirit = plugin.getManager().getSpiritByOwner(mayor.getUUID());
+             }
+        } catch (Exception e) {}
+        
+        if (spirit != null && spirit.getMode() == SpiritEntity.SpiritMode.GUARDIAN) {
+            double mood = spirit.getMood();
+            // 梯度加成:
+            // 60-79: 减伤 10%
+            // 80-89: 减伤 15%
+            // 90-100: 减伤 20%
+            
+            double reduction = 0;
+            if (mood >= 90) {
+                reduction = 0.20;
+            } else if (mood >= 80) {
+                reduction = 0.15;
+            } else if (mood >= 60) {
+                reduction = 0.10;
+            }
+            
+            if (reduction > 0) {
+                double original = event.getDamage();
+                event.setDamage(original * (1.0 - reduction));
+            }
+        }
+    }
+
+    @EventHandler(priority = org.bukkit.event.EventPriority.HIGH, ignoreCancelled = false)
+    public void onCropGrow(BlockGrowEvent event) {
+        // 仅处理作物
+        if (!(event.getNewState().getBlockData() instanceof Ageable)) return;
+        
+        // 检查是否被 BiomeGifts 处理过 (跳级生长)
+        // 如果事件被取消，我们需要判断是因为"贫瘠惩罚"还是"富饶奖励"
+        boolean isBonus = false;
+        if (event.isCancelled()) {
+            // 检查当前方块的年龄是否已经超过了事件原本要变成的年龄
+            // 如果是，说明 BiomeGifts (或其他插件) 已经手动跳级了
+            if (event.getBlock().getBlockData() instanceof Ageable worldAge && 
+                event.getNewState().getBlockData() instanceof Ageable proposedAge) {
+                if (worldAge.getAge() > proposedAge.getAge()) {
+                    isBonus = true;
+                } else {
+                    return; // 是惩罚或普通取消，不进行地灵加成
+                }
+            } else {
+                return;
+            }
+        }
+        
+        com.palmergames.bukkit.towny.object.Town town = TownyIntegration.getTownAt(event.getBlock().getLocation());
+        if (town == null) return;
+        
+        SpiritEntity spirit = null;
+        try {
+             com.palmergames.bukkit.towny.object.Resident mayor = town.getMayor();
+             if (mayor != null) {
+                 spirit = plugin.getManager().getSpiritByOwner(mayor.getUUID());
+             }
+        } catch (Exception e) {}
+        
+        if (spirit != null && spirit.getMode() == SpiritEntity.SpiritMode.GUARDIAN) {
+            // 心情 >= 90: 作物生长加速 (独立乘区)
+            if (spirit.getMood() >= 90) {
+                // 10% 概率触发跳级生长
+                if (ThreadLocalRandom.current().nextDouble() < 0.1) {
+                    // 获取当前实际的方块数据
+                    Ageable ageable = (Ageable) event.getBlock().getBlockData();
+                    
+                    // 如果事件没被取消，且我们想加成，我们是基于"即将变成的状态"还是"当前状态"?
+                    // 如果事件没被取消，系统稍后会将 newState 应用。
+                    // 我们想要的是效果叠加。
+                    // 1. 如果 BiomeGifts 没触发 (Normal)，事件正常，newState = Age+1。我们想变成 Age+2。
+                    // 2. 如果 BiomeGifts 触发 (Bonus)，事件取消，World = Age+2。我们想变成 Age+3。
+                    
+                    if (!event.isCancelled()) {
+                        // 基于 newState 修改
+                        Ageable proposed = (Ageable) event.getNewState().getBlockData();
+                        if (proposed.getAge() < proposed.getMaximumAge()) {
+                            proposed.setAge(proposed.getAge() + 1);
+                            event.getNewState().setBlockData(proposed);
+                            // 播放特效
+                            event.getBlock().getWorld().spawnParticle(Particle.HEART, event.getBlock().getLocation().add(0.5, 0.5, 0.5), 3, 0.3, 0.3, 0.3);
+                        }
+                    } else if (isBonus) {
+                        // 基于 World Block 修改 (因为事件已取消，我们只能手动再改一次)
+                        if (ageable.getAge() < ageable.getMaximumAge()) {
+                            ageable.setAge(ageable.getAge() + 1);
+                            event.getBlock().setBlockData(ageable);
+                            // 播放特效
+                            event.getBlock().getWorld().spawnParticle(Particle.HEART, event.getBlock().getLocation().add(0.5, 0.5, 0.5), 3, 0.3, 0.3, 0.3);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @EventHandler(priority = org.bukkit.event.EventPriority.MONITOR, ignoreCancelled = true)
+    public void onBlockBreak(BlockBreakEvent event) {
+        if (event.isCancelled()) return;
+        if (!BiomeGiftsHelper.isEnabled()) return;
+        
+        com.palmergames.bukkit.towny.object.Town town = TownyIntegration.getTownAt(event.getBlock().getLocation());
+        if (town == null) return;
+        
+        SpiritEntity spirit = null;
+        try {
+             com.palmergames.bukkit.towny.object.Resident mayor = town.getMayor();
+             if (mayor != null) {
+                 spirit = plugin.getManager().getSpiritByOwner(mayor.getUUID());
+             }
+        } catch (Exception e) {}
+        
+        if (spirit != null && spirit.getMode() == SpiritEntity.SpiritMode.GUARDIAN) {
+            if (spirit.getMood() >= 90) {
+                 try {
+                     Object config = BiomeGiftsHelper.getCropConfig(event.getBlock().getType());
+                     boolean isCrop = (config != null);
+                     
+                     if (config == null) {
+                         config = BiomeGiftsHelper.getOreConfig(event.getBlock().getType());
+                     }
+                     
+                     if (config != null) {
+                         // 如果是作物配置，必须检查是否成熟
+                         if (isCrop) {
+                             if (event.getBlock().getBlockData() instanceof Ageable ageable) {
+                                 if (ageable.getAge() != ageable.getMaximumAge()) return;
+                             } else {
+                                 // 如果配置了作物但方块不是可生长的，忽略
+                                 return;
+                             }
+                         }
+                         
+                         Class<?> configClass = config.getClass();
+                         double baseChance = configClass.getField("baseChance").getDouble(config);
+                         double richMultiplier = configClass.getField("richMultiplier").getDouble(config);
+                         double poorMultiplier = configClass.getField("poorMultiplier").getDouble(config);
+                         String dropItemName = (String) configClass.getField("dropItem").get(config);
+                         
+                         double currentChance = baseChance;
+                         String biomeKey = event.getBlock().getWorld().getBiome(event.getBlock().getLocation()).getKey().toString();
+                         Method getBiomeType = configClass.getMethod("getBiomeType", String.class);
+                         Object biomeTypeObj = getBiomeType.invoke(config, biomeKey);
+                         
+                         if (biomeTypeObj != null) {
+                             String typeName = ((Enum<?>)biomeTypeObj).name();
+                             if ("RICH".equals(typeName)) {
+                                 currentChance *= richMultiplier;
+                             } else if ("POOR".equals(typeName)) {
+                                 currentChance *= poorMultiplier;
+                             } else {
+                                 currentChance *= 0.5; 
+                             }
+                         }
+                         
+                         // 独立乘区：额外增加 10% 的掉落概率 (相对于当前概率)
+                         double spiritChance = currentChance * 0.1;
+                         
+                         if (ThreadLocalRandom.current().nextDouble() < spiritChance) {
+                             ItemStack item = BiomeGiftsHelper.getItem(dropItemName);
+                             if (item != null) {
+                                 event.getBlock().getWorld().dropItemNaturally(event.getBlock().getLocation(), item);
+                                 event.getBlock().getWorld().spawnParticle(Particle.HEART, event.getBlock().getLocation().add(0.5, 0.5, 0.5), 3, 0.3, 0.3, 0.3);
+                             }
+                         }
+                     }
+                 } catch (Exception e) {
+                     // Reflection error, ignore
+                 }
+            }
+        }
+    }
+    
     @EventHandler
     public void onChat(AsyncPlayerChatEvent event) {
         Player p = event.getPlayer();
@@ -639,35 +1067,59 @@ public class SpiritListener implements Listener {
         }
 
         long now = System.currentTimeMillis();
-        long cooldown = 86400000L; // 24 hours
-        long passed = now - data.getLastInteractTime();
-
-        if (passed > cooldown) { 
+        
+        // 每日凌晨4点刷新 (与嘴馋清单统一)
+        LocalDateTime nowTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(now), ZoneId.systemDefault());
+        LocalDateTime lastTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(data.getLastInteractTime()), ZoneId.systemDefault());
+        
+        // 将时间平移4小时，这样凌晨4点就变成了"0点" (日期变更线)
+        LocalDateTime adjustedNow = nowTime.minusHours(4);
+        LocalDateTime adjustedLast = lastTime.minusHours(4);
+        
+        boolean isNewDay = data.getLastInteractTime() == 0 || adjustedNow.toLocalDate().isAfter(adjustedLast.toLocalDate());
+        
+        if (isNewDay) { 
             data.interact();
-            data.setMood(data.getMood() + 10); 
-            data.addExp(10); 
+            
+            // 独立随机概率:
+            // 心情: 80% +10, 20% +20
+            // 经验: 80% +10, 20% +20
+            double moodAdd = ThreadLocalRandom.current().nextDouble() < 0.2 ? 20 : 10;
+            int expAdd = ThreadLocalRandom.current().nextDouble() < 0.2 ? 20 : 10;
+
+            data.addMood(moodAdd); 
+            data.addExp(expAdd); 
             data.setExpression(SpiritSkinManager.Expression.HAPPY, 60); 
             p.sendMessage("§d你温柔地抚摸了 " + data.getName() + " 的头。");
-            p.sendMessage("§d" + data.getName() + " 蹭了蹭你的手，心情变好了！(心情 +10, 经验 +10)");
+            p.sendMessage("§d" + data.getName() + " 蹭了蹭你的手，心情变好了！(心情 +" + (int)moodAdd + ", 经验 +" + expAdd + ")");
             p.playSound(p.getLocation(), Sound.ENTITY_CAT_PURR, 1, 1);
             plugin.getManager().saveData();
         } else {
-             long remaining = cooldown - passed;
-             long hours = remaining / 3600000;
-             long minutes = (remaining % 3600000) / 60000;
+             // 计算距离下一个凌晨4点的时间
+             LocalDateTime nextReset;
+             if (nowTime.getHour() < 4) {
+                 // 如果现在是凌晨0-3点，下一个4点就是今天
+                 nextReset = nowTime.toLocalDate().atTime(4, 0);
+             } else {
+                 // 否则是明天
+                 nextReset = nowTime.toLocalDate().plusDays(1).atTime(4, 0);
+             }
+             
+             long seconds = java.time.Duration.between(nowTime, nextReset).getSeconds();
+             long hours = seconds / 3600;
+             long minutes = (seconds % 3600) / 60;
+             
              String timeStr = "";
              if (hours > 0) timeStr += hours + "小时";
              timeStr += minutes + "分钟";
              
              p.sendMessage("§7" + data.getName() + " 看起来很享受你的陪伴。");
-             p.sendMessage("§7(还需要等待 " + timeStr + " 才能再次获得心情提升)");
+             p.sendMessage("§7(今天已经抚摸过了，请等待 " + timeStr + " 后再来)");
              p.playSound(p.getLocation(), Sound.ENTITY_CAT_AMBIENT, 0.5f, 1f);
         }
     }
     
     private boolean isFood(Material m) {
-        return m == Material.BREAD || m == Material.COOKED_BEEF || m == Material.COOKED_CHICKEN || 
-               m == Material.APPLE || m == Material.GOLDEN_APPLE || m == Material.CAKE || 
-               m == Material.COOKIE || m == Material.SWEET_BERRIES || m == Material.HONEY_BOTTLE;
+        return m.isEdible();
     }
 }

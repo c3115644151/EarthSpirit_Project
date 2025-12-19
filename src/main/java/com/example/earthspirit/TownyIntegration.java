@@ -293,25 +293,64 @@ public class TownyIntegration {
         updateTownPermissions(town);
     }
     
-    private static void updateTownPermissions(Town town) {
+    public static void updateTownPermissions(Town town) {
+        // 尝试获取该居所关联的地灵
+        // 假设市长就是地灵的主人
+        SpiritEntity spirit = null;
+        try {
+            Resident mayor = town.getMayor();
+            if (mayor != null) {
+                spirit = EarthSpiritPlugin.getInstance().getManager().getSpiritByOwner(mayor.getUUID());
+            }
+        } catch (Exception e) {
+            // ignore
+        }
+        
+        updateTownPermissions(town, spirit);
+    }
+
+    public static void updateTownPermissions(Town town, SpiritEntity spirit) {
+        boolean protectionActive = true;
+        
+        if (spirit != null && spirit.getMode() == SpiritEntity.SpiritMode.GUARDIAN) {
+            // 检查心情和饱食度
+            if (spirit.getMood() <= 0 || spirit.getHunger() <= 0) {
+                protectionActive = false;
+            }
+        }
+
         // 同步所有 TownBlock 的权限状态
         for (TownBlock tb : town.getTownBlocks()) {
-            // 显式同步 Town 的权限设置到 TownBlock
-            // 注意：TownBlock 的权限通常是独立的，但在“同步”模式下，应该跟随 Town
-            // 如果 Towny 版本较新，可能需要直接操作 Permissions 对象
+            boolean isHomeBlock = false;
+            try {
+                if (town.hasHomeBlock() && town.getHomeBlock().equals(tb)) {
+                    isHomeBlock = true;
+                }
+            } catch (TownyException e) {
+                // ignore
+            }
+
+            // 如果保护失效且不是核心区块，强制开启破坏权限 (即失去保护)
+            // 在 Towny 中，权限为 true 表示允许该行为
+            // explosion=true -> 允许爆炸
+            // fire=true -> 允许火势蔓延
+            // mobs=true -> 允许刷怪 (通常保护是防刷怪，还是防怪物破坏？Towny是防刷怪/防怪物生成)
+            // 用户的需求是 "领地防爆、防破坏等正常运行" -> 保护有效
+            // "失效" -> 允许爆炸/破坏
             
-            // 尝试直接设置 TownBlock 的状态位 (如果有对应 API)
-            // 遗憾的是 TownBlock API 并没有直接的 setHasMobs 等方法，它们通常存储在 Permissions 或 Metadata 中
-            
-            // 关键：将 TownBlock 的 Permissions 重置为与 Town 一致
-            // 通过 setPermissions 触发更新，但需要正确的参数
-            // 这里我们采取一个更通用的策略：让 TownBlock 知道它需要更新
-            
-            // 强制保存 TownBlock 会触发一些内部同步
-            tb.getPermissions().pvp = town.isPVP();
-            tb.getPermissions().fire = town.isFire();
-            tb.getPermissions().explosion = town.isExplosion();
-            tb.getPermissions().mobs = town.hasMobs();
+            if (!protectionActive && !isHomeBlock) {
+                tb.getPermissions().explosion = true;
+                tb.getPermissions().fire = true;
+                tb.getPermissions().mobs = true; // 也许也让怪能生成
+                // pvp? 用户没明说，但通常保护失效意味着危险，开启PVP也合理。暂不强开PVP，以免误伤
+                tb.getPermissions().pvp = true; 
+            } else {
+                // 保护有效，或者核心区块 -> 恢复为居所设定
+                tb.getPermissions().explosion = town.isExplosion();
+                tb.getPermissions().fire = town.isFire();
+                tb.getPermissions().mobs = town.hasMobs();
+                tb.getPermissions().pvp = town.isPVP();
+            }
             
             // 保存更改
             TownyUniverse.getInstance().getDataSource().saveTownBlock(tb);

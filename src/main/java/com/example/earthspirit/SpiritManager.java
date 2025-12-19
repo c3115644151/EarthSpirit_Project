@@ -1,37 +1,25 @@
 package com.example.earthspirit;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.TypeAdapter;
-import com.google.gson.stream.JsonReader;
-import com.google.gson.stream.JsonWriter;
-import com.google.gson.reflect.TypeToken;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.World;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Entity;
 
-import java.io.*;
-import java.lang.reflect.Type;
+import java.io.File;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.logging.Level;
 
 public class SpiritManager {
     private final EarthSpiritPlugin plugin;
     private final Map<UUID, SpiritEntity> spiritsByOwner = new HashMap<>(); // Key: Owner UUID
     private final File dataFile;
-    private final Gson gson;
 
     public SpiritManager(EarthSpiritPlugin plugin) {
         this.plugin = plugin;
-        this.dataFile = new File(plugin.getDataFolder(), "spirits.json");
-        
-        this.gson = new GsonBuilder()
-                .registerTypeAdapter(Location.class, new LocationAdapter())
-                .setPrettyPrinting()
-                .create();
-                
+        this.dataFile = new File(plugin.getDataFolder(), "spirits.yml");
         loadData();
     }
 
@@ -72,98 +60,38 @@ public class SpiritManager {
     }
 
     public void saveData() {
-        // 保存前准备数据 (序列化背包等)
+        YamlConfiguration config = new YamlConfiguration();
+        
         for (SpiritEntity spirit : spiritsByOwner.values()) {
-            spirit.prepareSave();
+            String key = spirit.getOwnerId().toString();
+            if (key != null) {
+                spirit.saveToConfig(config.createSection(key));
+            }
         }
         
-        try (Writer writer = new FileWriter(dataFile)) {
-            gson.toJson(spiritsByOwner, writer);
+        try {
+            config.save(dataFile);
         } catch (IOException e) {
-            plugin.getLogger().severe("无法保存地灵数据: " + e.getMessage());
+            plugin.getLogger().log(Level.SEVERE, "无法保存地灵数据 (spirits.yml)", e);
         }
     }
 
     public void loadData() {
         if (!dataFile.exists()) {
-            plugin.getDataFolder().mkdirs();
             return;
         }
-        try (Reader reader = new FileReader(dataFile)) {
-            Type type = new TypeToken<HashMap<UUID, SpiritEntity>>(){}.getType();
-            Map<UUID, SpiritEntity> loaded = gson.fromJson(reader, type);
-            if (loaded != null) {
-                spiritsByOwner.putAll(loaded);
-                // 加载后初始化 (反序列化背包等)
-                for (SpiritEntity spirit : spiritsByOwner.values()) {
-                    spirit.initAfterLoad();
+        
+        YamlConfiguration config = YamlConfiguration.loadConfiguration(dataFile);
+        
+        for (String key : config.getKeys(false)) {
+            try {
+                SpiritEntity spirit = SpiritEntity.fromConfig(config.getConfigurationSection(key));
+                if (spirit != null) {
+                    spiritsByOwner.put(spirit.getOwnerId(), spirit);
                 }
+            } catch (Exception e) {
+                plugin.getLogger().log(Level.WARNING, "无法加载地灵数据: " + key, e);
             }
-        } catch (IOException e) {
-            plugin.getLogger().severe("无法加载地灵数据: " + e.getMessage());
-        }
-    }
-    
-    // 自定义 Location 适配器
-    private static class LocationAdapter extends TypeAdapter<Location> {
-        @Override
-        public void write(JsonWriter out, Location value) throws IOException {
-            if (value == null) {
-                out.nullValue();
-                return;
-            }
-            out.beginObject();
-            if (value.getWorld() != null) {
-                out.name("world").value(value.getWorld().getName());
-            }
-            out.name("x").value(value.getX());
-            out.name("y").value(value.getY());
-            out.name("z").value(value.getZ());
-            out.name("yaw").value(value.getYaw());
-            out.name("pitch").value(value.getPitch());
-            out.endObject();
-        }
-
-        @Override
-        public Location read(JsonReader in) throws IOException {
-            String worldName = null;
-            double x = 0, y = 0, z = 0;
-            float yaw = 0, pitch = 0;
-
-            in.beginObject();
-            while (in.hasNext()) {
-                String name = in.nextName();
-                switch (name) {
-                    case "world":
-                        worldName = in.nextString();
-                        break;
-                    case "x":
-                        x = in.nextDouble();
-                        break;
-                    case "y":
-                        y = in.nextDouble();
-                        break;
-                    case "z":
-                        z = in.nextDouble();
-                        break;
-                    case "yaw":
-                        yaw = (float) in.nextDouble();
-                        break;
-                    case "pitch":
-                        pitch = (float) in.nextDouble();
-                        break;
-                    default:
-                        in.skipValue();
-                        break;
-                }
-            }
-            in.endObject();
-
-            World world = null;
-            if (worldName != null) {
-                world = Bukkit.getWorld(worldName);
-            }
-            return new Location(world, x, y, z, yaw, pitch);
         }
     }
     

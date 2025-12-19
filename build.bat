@@ -57,4 +57,4 @@ echo ==========================================
 echo Build process finished.
 echo Check the 'target' folder for the .jar file.
 echo ==========================================
-pause
+:: pause

@@ -11,6 +11,7 @@ import org.bukkit.inventory.meta.SkullMeta;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 import java.time.LocalDate;
 
 import com.example.earthspirit.cravings.DailyRequest;
@@ -162,11 +163,11 @@ public class SpiritGUI {
         String townName = spirit.getTownName();
         
         if (townName == null) {
-            // 无居所 -> 显示 "建立领地"
+            // 无居所 -> 显示 "建立居所"
             if (canInteract && isOwner) {
-                ItemStack createBtn = createItem(Material.OAK_SAPLING, "§a§l🌱 建立领地", 
+                ItemStack createBtn = createItem(Material.OAK_SAPLING, "§a§l🌱 建立居所", 
                     "§7", "§f这只地灵还没有守护的土地。", 
-                    "§f点击将脚下区块设为 §e核心领地§f！", 
+                    "§f点击将脚下区块设为 §e核心居所§f！", 
                     "§c(仅限守护灵模式)");
                 inv.setItem(22, createBtn);
             } else {
@@ -174,15 +175,15 @@ public class SpiritGUI {
                 inv.setItem(22, noTown);
             }
         } else {
-            // 有居所 -> 显示 "居所管理" 和 "扩充领地"
+            // 有居所 -> 显示 "居所管理" 和 "扩充居所"
             if (canInteract) {
                 ItemStack manageBtn = createItem(Material.EMERALD, "§2§l⚒ 居所管理", 
                     "§7", "§f当前居所: §a" + townName, "§7", "§f点击查看或管理居所", "§7(权限/公告/升级)");
                 inv.setItem(22, manageBtn);
                 
                 if (isOwner) {
-                    ItemStack expandBtn = createItem(Material.GOLDEN_SHOVEL, "§6§l🚩 扩充领地", 
-                        "§7", "§f将脚下区块纳入领地范围", 
+                    ItemStack expandBtn = createItem(Material.GOLDEN_SHOVEL, "§6§l🚩 扩充居所", 
+                        "§7", "§f将脚下区块纳入居所范围", 
                         "§f当前等级上限: §e" + (1 + (spirit.getLevel()-1)*2) + " 格",
                         "§c(仅限守护灵模式)");
                     inv.setItem(20, expandBtn);
@@ -327,15 +328,64 @@ public class SpiritGUI {
         return count;
     }
 
+    public static void openTrustMenu(Player player, SpiritEntity spirit) {
+        Inventory inv = Bukkit.createInventory(null, 54, "§8居所信任与伴侣管理");
+
+        // Background
+        ItemStack bg = createItem(Material.GRAY_STAINED_GLASS_PANE, "§7");
+        for (int i = 0; i < 54; i++) {
+            inv.setItem(i, bg);
+        }
+
+        com.palmergames.bukkit.towny.object.Town town = TownyIntegration.getTown(player);
+        if (town == null) {
+            player.sendMessage("§c无法获取居所数据！");
+            return;
+        }
+        
+        // 1. 伴侣设置 (Slot 4)
+        String partnerName = "无";
+        if (spirit.getPartnerId() != null) {
+            partnerName = Bukkit.getOfflinePlayer(spirit.getPartnerId()).getName();
+        }
+        ItemStack partnerItem = createItem(Material.RED_DYE, "§d§l❤ 灵魂伴侣",
+            "§7", "§f当前伴侣: §d" + partnerName, "§7", "§e点击设置伴侣", "§c已有伴侣时双击解除");
+        inv.setItem(4, partnerItem);
+
+        // 2. 信任名单 (Slot 18-44)
+        java.util.Set<UUID> trusted = spirit.getTrustedPlayers();
+        int slot = 18;
+        if (trusted != null) {
+            for (UUID uuid : trusted) {
+                if (slot >= 45) break;
+                org.bukkit.OfflinePlayer op = Bukkit.getOfflinePlayer(uuid);
+                String pName = op.getName() != null ? op.getName() : "Unknown";
+                
+                ItemStack skull = createItem(Material.PLAYER_HEAD, "§b" + pName, 
+                    "§7", "§f[已信任]", "§c点击移除信任 (双击确认)");
+                inv.setItem(slot++, skull);
+            }
+        }
+        
+        // 3. 添加信任 (Slot 49)
+        ItemStack addBtn = createItem(Material.EMERALD, "§a§l+ 添加信任成员", 
+            "§7", "§f点击输入玩家ID", "§f将其加入信任白名单");
+        inv.setItem(49, addBtn);
+        
+        // Return
+        ItemStack back = createItem(Material.ARROW, "§f返回");
+        inv.setItem(45, back);
+        
+        player.openInventory(inv);
+    }
+
     public static void openManagementMenu(Player player, SpiritEntity spirit) {
         Inventory inv = Bukkit.createInventory(null, 27, SUB_GUI_TITLE);
 
         com.palmergames.bukkit.towny.object.Town town = TownyIntegration.getTown(player);
-        // 如果玩家是居民但不是主人，尝试获取其所属城镇
         if (town == null) {
-            town = TownyIntegration.getTownAt(player.getLocation()); // 尝试获取脚下城镇
+            town = TownyIntegration.getTownAt(player.getLocation()); 
             if (town == null || !town.getName().equals(spirit.getTownName())) {
-                // 如果脚下不是或者不对，尝试直接获取 Spirit 记录的城镇
                  try {
                     town = com.palmergames.bukkit.towny.TownyUniverse.getInstance().getTown(spirit.getTownName());
                 } catch (Exception e) {}
@@ -347,8 +397,8 @@ public class SpiritGUI {
             return;
         }
 
-        // 权限判断
-        boolean isOwner = player.getUniqueId().equals(spirit.getOwnerId());
+        // 权限判断 (主人或伴侣)
+        boolean isOwner = player.getUniqueId().equals(spirit.getOwnerId()) || spirit.isPartner(player.getUniqueId());
 
         // 背景
         ItemStack bg = createItem(Material.GRAY_STAINED_GLASS_PANE, "§7");
@@ -356,110 +406,95 @@ public class SpiritGUI {
             inv.setItem(i, bg);
         }
 
-        // 状态获取
         boolean pvp = TownyIntegration.isPvpEnabled(town);
         boolean mobs = TownyIntegration.isMobsEnabled(town);
         boolean expl = TownyIntegration.isExplosionEnabled(town);
         boolean fire = TownyIntegration.isFireEnabled(town);
-        String board = TownyIntegration.getTownBoard(town);
+        // String board = TownyIntegration.getTownBoard(town);
         String townName = town.getName();
-
-        // 辅助Lore生成
         String clickHint = isOwner ? "§f点击切换状态" : "§7(仅主人可修改)";
         String editHint = isOwner ? "§f点击修改" : "§7(仅主人可修改)";
 
-        // PVP 开关
+        // 1. PVP 开关 (10)
         ItemStack pvpBtn = createItem(Material.DIAMOND_SWORD, "§c§l⚔ PVP状态", 
-            "§7", clickHint, 
-            "§f当前状态: " + (pvp ? "§a开启" : "§c关闭"));
+            "§7", clickHint, "§f当前状态: " + (pvp ? "§a开启" : "§c关闭"));
         inv.setItem(10, pvpBtn);
 
-        // 怪物生成
+        // 2. 怪物生成 (11)
         ItemStack mobBtn = createItem(Material.ZOMBIE_HEAD, "§2§l☠ 怪物生成", 
-            "§7", clickHint,
-            "§f当前状态: " + (mobs ? "§a开启" : "§c关闭"));
+            "§7", clickHint, "§f当前状态: " + (mobs ? "§a开启" : "§c关闭"));
         inv.setItem(11, mobBtn);
 
-        // 爆炸开关
+        // 3. 爆炸开关 (12)
         ItemStack tntBtn = createItem(Material.TNT, "§4§l💣 爆炸保护", 
-            "§7", clickHint,
-            "§f当前状态: " + (expl ? "§a开启" : "§c关闭"));
+            "§7", clickHint, "§f当前状态: " + (expl ? "§a开启" : "§c关闭"));
         inv.setItem(12, tntBtn);
         
-        // 火焰开关
+        // 4. 火焰开关 (13)
         ItemStack fireBtn = createItem(Material.FLINT_AND_STEEL, "§6§l🔥 火焰保护", 
-            "§7", clickHint,
-            "§f当前状态: " + (fire ? "§a开启" : "§c关闭"));
+            "§7", clickHint, "§f当前状态: " + (fire ? "§a开启" : "§c关闭"));
         inv.setItem(13, fireBtn);
 
-        // 公告
-        ItemStack boardBtn = createItem(Material.OAK_SIGN, "§e§l✎ 进城公告", 
-            "§7", editHint,
-            "§f当前公告: §7" + (board.isEmpty() ? "暂无" : board));
+        // 4.5 入城公告 (14)
+        String board = TownyIntegration.getTownBoard(town);
+        ItemStack boardBtn = createItem(Material.OAK_SIGN, "§e§l📜 入城公告", 
+            "§7", editHint, "§f当前公告:", "§7" + (board.isEmpty() ? "(暂无)" : board));
         inv.setItem(14, boardBtn);
 
-        // 居所名 (仅主人显示修改提示，居民只显示名字)
+        // 5. 信任与伴侣管理 (24) - 仅主人/伴侣
+        if (isOwner) {
+            ItemStack memberBtn = createItem(Material.PLAYER_HEAD, "§3§l👥 信任与伴侣",
+                "§7", "§f管理居所的信任白名单", "§f和设置灵魂伴侣");
+            inv.setItem(24, memberBtn); 
+        }
+
+        // 6. 居所名 (15)
         ItemStack renameBtn = createItem(Material.NAME_TAG, "§b§l✎ 居所名称", 
-            "§7", editHint,
-            "§f当前名称: §b" + townName);
+            "§7", editHint, "§f当前名称: §b" + townName);
         inv.setItem(15, renameBtn);
 
-        // 删除居所 (仅主人可见)
+        // 7. 废弃居所 (16)
         if (isOwner) {
             ItemStack deleteBtn = createItem(Material.BARRIER, "§4§l⚠ 废弃居所", 
                 "§7", "§f点击解散居所 (慎用！)", "§c此操作不可撤销！");
             inv.setItem(16, deleteBtn);
         } else {
-            // 居民显示身份信息
-            ItemStack roleBtn = createItem(Material.PLAYER_HEAD, "§3§l👤 您的身份",
-                "§7", "§f您是这片灵域的: §b居民",
-                "§f拥有基础交互权限");
+             ItemStack roleBtn = createItem(Material.PLAYER_HEAD, "§3§l👤 您的身份",
+                "§7", "§f您是这片灵域的: §b居民", "§f拥有基础交互权限");
              inv.setItem(16, roleBtn);
         }
 
-        // 废弃单块土地
+        // 8. 废弃单块 (19)
         if (isOwner) {
             ItemStack unclaimBtn = createItem(Material.IRON_SHOVEL, "§c§l⚒ 废弃当前地块",
-                "§7", "§f删除脚下的领地区块",
-                "§c仅限守护灵模式下操作",
-                "§c不可删除核心区块");
+                "§7", "§f删除脚下的居所区块", "§c仅限守护灵模式下操作", "§c不可删除核心区块");
             inv.setItem(19, unclaimBtn);
         }
-
-        // 成员管理 (仅主人可见管理，居民可能看到列表或者直接隐藏)
-        if (isOwner) {
-            ItemStack memberBtn = createItem(Material.PLAYER_HEAD, "§3§l👥 成员管理",
-                "§7", "§f管理领地成员 (邀请/踢出)");
-            inv.setItem(20, memberBtn);
-        }
-
-        // 灵域加成信息 (Slot 22)
+        
+        // 9. 灵域加成信息 (22)
         double mood = spirit.getMood();
         List<String> moodLore = new ArrayList<>();
         moodLore.add("§7");
         moodLore.add("§f心情值: " + getMoodBar(mood));
         moodLore.add("§7");
-        
-        // 动态显示：当前阶段 + 下一阶段
         if (mood < 60) {
             moodLore.add("§7   当前: 无加成");
-            moodLore.add("§8   下一级 (60点): 领地减伤 +10%");
+            moodLore.add("§8   下一级 (60点): 居所减伤 +10%");
         } else if (mood < 80) {
-            moodLore.add("§a   当前: 领地减伤 +10%");
-            moodLore.add("§8   下一级 (80点): 领地减伤 +15%");
+            moodLore.add("§a   当前: 居所减伤 +10%");
+            moodLore.add("§8   下一级 (80点): 居所减伤 +15%");
         } else if (mood < 90) {
-            moodLore.add("§a   当前: 领地减伤 +15%");
-            moodLore.add("§8   下一级 (90点): 领地减伤 +20% & 作物/特产加成");
+            moodLore.add("§a   当前: 居所减伤 +15%");
+            moodLore.add("§8   下一级 (90点): 居所减伤 +20% & 作物/特产加成");
         } else {
-            moodLore.add("§a   当前: 领地减伤 +20%");
+            moodLore.add("§a   当前: 居所减伤 +20%");
             moodLore.add("§a        作物生长/特产掉落加成");
             moodLore.add("§7   (已达到最高阶加成)");
         }
-        
         ItemStack moodBtn = createItem(Material.NETHER_STAR, "§d§l✨ 灵域加成", moodLore.toArray(new String[0]));
         inv.setItem(22, moodBtn);
 
-        // 6. 返回按钮
+        // 10. 返回 (26)
         ItemStack backBtn = createItem(Material.ARROW, "§f§l⬅ 返回", "§7", "§f返回上一级菜单");
         inv.setItem(26, backBtn);
 

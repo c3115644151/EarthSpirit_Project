@@ -26,12 +26,12 @@ import org.bukkit.Particle;
 
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.block.BlockGrowEvent;
-import org.bukkit.event.block.BlockDropItemEvent;
+// import org.bukkit.event.block.BlockDropItemEvent;
 import org.bukkit.block.data.Ageable;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
+// import java.time.temporal.ChronoUnit;
 
 import org.bukkit.event.entity.EntityTargetEvent;
 import org.bukkit.entity.Wolf;
@@ -47,14 +47,17 @@ import com.example.earthspirit.cravings.CravingManager;
 
 import org.bukkit.event.block.BlockBreakEvent;
 import java.lang.reflect.Method;
-import java.lang.reflect.Field;
 import java.util.concurrent.ThreadLocalRandom;
 
 import org.bukkit.event.player.PlayerJoinEvent;
-import org.bukkit.event.player.PlayerQuitEvent;
+// import org.bukkit.event.player.PlayerQuitEvent;
 
 public class SpiritListener implements Listener {
     // ... existing fields ...
+
+    // 记录玩家移除信任/伴侣的确认状态
+    private final java.util.Map<UUID, String> removeTrustConfirm = new java.util.HashMap<>();
+    private final java.util.Set<UUID> removePartnerConfirm = new java.util.HashSet<>();
 
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
@@ -63,17 +66,153 @@ public class SpiritListener implements Listener {
         if (spirit != null) {
             spirit.resetMoodTimer();
         }
+        
+        // 检查伴侣请求
+        UUID requesterId = plugin.getManager().getPartnerRequest(event.getPlayer().getUniqueId());
+        if (requesterId != null) {
+            String requesterName = Bukkit.getOfflinePlayer(requesterId).getName();
+            event.getPlayer().sendMessage("§d§l[地灵羁绊] §f收到来自 §e" + requesterName + " §f的伴侣请求！");
+            event.getPlayer().sendMessage("§f输入 §a/esp partner accept §f接受，或 §c/esp partner deny §f拒绝。");
+        }
     }
 
     // Duplicate onInventoryClick removed
 
 
     // ... existing code ...
-    private final Set<UUID> editingBoard = new HashSet<>();
-    private final java.util.Map<UUID, UUID> editingName = new java.util.HashMap<>(); // 地灵改名 (Player -> SpiritID)
-    private final java.util.Map<UUID, UUID> editingTownName = new java.util.HashMap<>(); // 居所改名 (Player -> SpiritID)
-    private final java.util.Map<UUID, UUID> confirmingDelete = new java.util.HashMap<>(); // 删除居所确认 (Player -> SpiritID)
-    private final java.util.Map<UUID, UUID> confirmingRelease = new java.util.HashMap<>(); // 解除契约确认 (Player -> SpiritID)
+    // Unified input handling is now used (pendingInputType/pendingInputData)
+    // Legacy maps removed: editingName, editingBoard, editingTownName, confirmingDelete, confirmingRelease
+    private final java.util.Map<UUID, String> pendingInputType = new java.util.HashMap<>(); // 玩家输入状态 (Player -> Type)
+    private final java.util.Map<UUID, Object> pendingInputData = new java.util.HashMap<>(); // 额外数据 (Player -> Data)
+
+    // ... existing fields ...
+    
+    @EventHandler
+    public void onChat(AsyncPlayerChatEvent event) {
+        Player p = event.getPlayer();
+        if (!pendingInputType.containsKey(p.getUniqueId())) return;
+        
+        event.setCancelled(true);
+        String type = pendingInputType.remove(p.getUniqueId());
+        String msg = event.getMessage();
+        
+        // 通用取消
+        if (msg.equalsIgnoreCase("cancel") || msg.equals("取消")) {
+            p.sendMessage("§e已取消操作。");
+            pendingInputData.remove(p.getUniqueId());
+            return;
+        }
+
+        // 根据类型处理
+        SpiritEntity spirit = null;
+        if (pendingInputData.containsKey(p.getUniqueId())) {
+             Object data = pendingInputData.remove(p.getUniqueId());
+             if (data instanceof SpiritEntity) {
+                 spirit = (SpiritEntity) data;
+             } else if (data instanceof UUID) {
+                 spirit = plugin.getManager().getSpirit((UUID)data);
+             }
+        }
+        
+        if (spirit == null) {
+            // 尝试获取玩家的地灵作为默认值
+            spirit = plugin.getManager().getSpiritByOwner(p.getUniqueId());
+        }
+
+        if (type.equals("NAME")) {
+            handleRename(p, spirit, msg);
+        } else if (type.equals("ADD_TRUST")) {
+             handleTrustAdd(p, spirit, msg);
+        } else if (type.equals("SET_PARTNER")) {
+             handlePartnerSet(p, spirit, msg);
+        } else if (type.equals("TOWN_NAME")) {
+             handleTownName(p, spirit, msg);
+        } else if (type.equals("TOWN_BOARD")) {
+             handleTownBoard(p, spirit, msg);
+        } else if (type.equals("DELETE_CONFIRM")) {
+             if (msg.equalsIgnoreCase("confirm")) {
+                 handleDeleteConfirm(p, spirit);
+             } else {
+                 p.sendMessage("§e操作已取消。");
+             }
+        } else if (type.equals("RELEASE_CONFIRM")) {
+             if (msg.equalsIgnoreCase("release")) {
+                 handleReleaseConfirm(p, spirit);
+             } else {
+                 p.sendMessage("§e操作已取消。");
+             }
+        }
+    }
+
+    private void handleRename(Player p, SpiritEntity spirit, String newName) {
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (spirit != null) {
+                // 统一添加颜色代码，保持风格一致
+                String finalName = "§a" + newName.replace("&", "§");
+                spirit.setName(finalName);
+                plugin.getManager().saveData();
+                p.sendMessage("§a地灵的名字已更新为: " + finalName);
+                p.playSound(p.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1, 1);
+            } else {
+                p.sendMessage("§c找不到地灵，改名失败。");
+            }
+        });
+    }
+
+    private void handleTownName(Player p, SpiritEntity spirit, String newName) {
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            com.palmergames.bukkit.towny.object.Town town = TownyIntegration.getTown(p);
+            if (town != null) {
+                TownyIntegration.renameTown(p, newName);
+                spirit.setTownName(newName); // Update local cache
+                plugin.getManager().saveData();
+                p.sendMessage("§a居所名称已更新为: " + newName);
+                p.playSound(p.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1, 1);
+            } else {
+                p.sendMessage("§c无法获取居所数据！");
+            }
+        });
+    }
+
+    private void handleTownBoard(Player p, SpiritEntity spirit, String newBoard) {
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            com.palmergames.bukkit.towny.object.Town town = TownyIntegration.getTown(p);
+            if (town != null) {
+                TownyIntegration.setTownBoard(town, newBoard);
+                p.sendMessage("§a居所公告已更新！");
+                p.playSound(p.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1, 1);
+            } else {
+                p.sendMessage("§c无法获取居所数据！");
+            }
+        });
+    }
+
+    private void handleDeleteConfirm(Player p, SpiritEntity spirit) {
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (TownyIntegration.deleteTown(p)) {
+                p.sendMessage("§c居所已废弃！地灵变为了流浪状态。");
+                p.playSound(p.getLocation(), Sound.ENTITY_WITHER_DEATH, 1f, 0.5f);
+                spirit.setTownName(null);
+                plugin.getManager().saveData();
+            } else {
+                p.sendMessage("§c废弃失败！可能你不是居所主人。");
+            }
+        });
+    }
+
+    private void handleReleaseConfirm(Player p, SpiritEntity spirit) {
+         Bukkit.getScheduler().runTask(plugin, () -> {
+             plugin.getManager().removeSpirit(spirit.getEntityId());
+             spirit.remove(); // Despawn entity
+             p.sendMessage("§c你解除了与地灵的契约。");
+             p.playSound(p.getLocation(), Sound.ENTITY_ITEM_BREAK, 1f, 0.5f);
+         });
+    }
+
+
+    // Old duplicate methods removed
+
+
     private final Set<UUID> switchingMenus = new HashSet<>(); // 正在切换菜单的玩家
 
     // 记录玩家当前正在查看哪个地灵 (Player UUID -> Spirit Entity UUID)
@@ -160,7 +299,8 @@ public class SpiritListener implements Listener {
 
                 p.sendMessage("§a成功召唤了地灵！快给它起个名字吧！");
                 p.sendMessage("§e请在聊天栏输入地灵的名字：");
-                editingName.put(p.getUniqueId(), newSpirit.getEntityId()); 
+                pendingInputType.put(p.getUniqueId(), "NAME");
+                pendingInputData.put(p.getUniqueId(), newSpirit.getEntityId());
                 p.playSound(p.getLocation(), Sound.BLOCK_BEACON_ACTIVATE, 1, 1);
                 
                 // 消耗物品 (第一次召唤消耗，后续收回/召唤不消耗)
@@ -169,7 +309,7 @@ public class SpiritListener implements Listener {
         }
     }
 
-    // 1.5 驯兽杖功能
+    // 1.5 风铃杖功能
     @EventHandler
     public void onWandUse(PlayerInteractEvent event) {
         if (event.getHand() != EquipmentSlot.HAND) return;
@@ -177,7 +317,7 @@ public class SpiritListener implements Listener {
         Player p = event.getPlayer();
         ItemStack item = p.getInventory().getItemInMainHand();
         
-        // 检查物品: 烈焰棒 (驯兽杖)
+        // 检查物品: 烈焰棒 (风铃杖)
         // 优先检查 CustomModelData (10002)，其次检查名字
         boolean isWand = false;
         if (item.getType() == Material.BLAZE_ROD) {
@@ -199,7 +339,7 @@ public class SpiritListener implements Listener {
         }
         
         if (spirit.getMode() != SpiritEntity.SpiritMode.COMPANION) {
-            p.sendMessage("§c驯兽杖仅在旅伴形态下可用！");
+            p.sendMessage("§c风铃杖仅在旅伴形态下可用！");
             return;
         }
 
@@ -290,7 +430,7 @@ public class SpiritListener implements Listener {
     public void onInventoryClick(InventoryClickEvent event) {
         String title = event.getView().getTitle();
         // Allow clicks in player inventory unless it's a special GUI
-        if (!title.equals(SpiritGUI.GUI_TITLE) && !title.equals(SpiritGUI.SUB_GUI_TITLE) && !title.startsWith("嘴馋清单 - ")) return;
+        if (!title.equals(SpiritGUI.GUI_TITLE) && !title.equals(SpiritGUI.SUB_GUI_TITLE) && !title.equals("§8居所信任与伴侣管理") && !title.startsWith("嘴馋清单 - ")) return;
         
         event.setCancelled(true); // 禁止拿取物品
         if (event.getCurrentItem() == null) return; // Allow empty clicks but event is cancelled
@@ -315,6 +455,8 @@ public class SpiritListener implements Listener {
             handleMainMenuClick(p, clicked, targetSpirit);
         } else if (title.equals(SpiritGUI.SUB_GUI_TITLE)) {
             handleManagementMenuClick(p, clicked, targetSpirit);
+        } else if (title.equals("§8居所信任与伴侣管理")) {
+            handleTrustMenuClick(p, clicked, targetSpirit);
         } else if (title.startsWith("嘴馋清单 - ")) {
             handleCravingsMenuClick(p, clicked, targetSpirit, event.getRawSlot());
         }
@@ -397,12 +539,12 @@ public class SpiritListener implements Listener {
             p.closeInventory();
         } else if (clicked.getType() == Material.PAPER) { // 嘴馋清单
             safeSwitch(p, () -> SpiritGUI.openCravingsMenu(p, spirit));
-        } else if (clicked.getType() == Material.EMERALD) { // 居所管理 / 领地功能
+        } else if (clicked.getType() == Material.EMERALD) { // 居所管理 / 居所功能
             if (spirit.getMode() == SpiritEntity.SpiritMode.GUARDIAN) {
-                // 只有守护模式才能管理领地
+                // 只有守护模式才能管理居所
                 safeSwitch(p, () -> SpiritGUI.openManagementMenu(p, spirit));
             } else {
-                p.sendMessage("§c地灵需要处于守护灵形态才能管理领地。(Shift+右键切换)");
+                p.sendMessage("§c地灵需要处于守护灵形态才能管理居所。(Shift+右键切换)");
             }
         } else if (clicked.getType() == Material.CHEST) { // 背包
              if (spirit.getMode() == SpiritEntity.SpiritMode.COMPANION) {
@@ -411,7 +553,7 @@ public class SpiritListener implements Listener {
              } else {
                  p.sendMessage("§c地灵背包仅在旅伴形态下可用。(Shift+右键切换)");
              }
-        } else if (clicked.getType() == Material.OAK_SAPLING) { // 建立领地
+        } else if (clicked.getType() == Material.OAK_SAPLING) { // 建立居所
             if (spirit.getMode() != SpiritEntity.SpiritMode.GUARDIAN) {
                 p.closeInventory();
                 p.sendMessage("§c请先切换至守护灵模式 (Shift+右键)！");
@@ -426,9 +568,9 @@ public class SpiritListener implements Listener {
                  p.spawnParticle(org.bukkit.Particle.HEART, spirit.getLocation(), 20, 0.5, 0.5, 0.5, 0.1);
                  spirit.setTownName(townName);
                  plugin.getManager().saveData();
-                p.sendMessage("§a§l领地结界已展开！(核心区块)");
+                p.sendMessage("§a§l居所结界已展开！(核心区块)");
             }
-        } else if (clicked.getType() == Material.GOLDEN_SHOVEL) { // 扩充领地
+        } else if (clicked.getType() == Material.GOLDEN_SHOVEL) { // 扩充居所
             if (spirit.getMode() != SpiritEntity.SpiritMode.GUARDIAN) {
                 p.closeInventory();
                 p.sendMessage("§c请先切换至守护灵模式 (Shift+右键)！");
@@ -446,8 +588,8 @@ public class SpiritListener implements Listener {
             int maxBlocks = 1 + (spirit.getLevel() - 1) * 2;
             if (town.getTownBlocks().size() >= maxBlocks) {
                 p.closeInventory();
-                p.sendMessage("§c领地范围已达上限！(Lv." + spirit.getLevel() + " 上限: " + maxBlocks + "格)");
-                p.sendMessage("§e提升地灵等级可解锁更多领地空间。");
+                p.sendMessage("§c居所范围已达上限！(Lv." + spirit.getLevel() + " 上限: " + maxBlocks + "格)");
+                p.sendMessage("§e提升地灵等级可解锁更多居所空间。");
                 p.playSound(p.getLocation(), Sound.BLOCK_ANVIL_LAND, 1f, 1f);
                 return;
             }
@@ -457,7 +599,7 @@ public class SpiritListener implements Listener {
             if (success) {
                 p.playSound(p.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1f, 2f);
                 // 注意：town.getTownBlocks().size() 可能还未更新，+1 显示
-                p.sendMessage("§a领地扩充成功！");
+                p.sendMessage("§a居所扩充成功！");
             }
         } else if (clicked.getType() == Material.DEAD_BUSH) {
              p.closeInventory();
@@ -465,12 +607,14 @@ public class SpiritListener implements Listener {
         } else if (clicked.getType() == Material.NAME_TAG) { // 地灵改名
             if (!p.getUniqueId().equals(spirit.getOwnerId())) return;
             p.closeInventory();
-            editingName.put(p.getUniqueId(), spirit.getEntityId());
+            pendingInputType.put(p.getUniqueId(), "NAME");
+            pendingInputData.put(p.getUniqueId(), spirit.getEntityId());
             p.sendMessage("§e请在聊天栏输入地灵的新名字 (输入 'cancel' 取消):");
         } else if (clicked.getType() == Material.SKELETON_SKULL) { // 解除契约
             if (!p.getUniqueId().equals(spirit.getOwnerId())) return;
             p.closeInventory();
-            confirmingRelease.put(p.getUniqueId(), spirit.getEntityId());
+            pendingInputType.put(p.getUniqueId(), "RELEASE_CONFIRM");
+            pendingInputData.put(p.getUniqueId(), spirit.getEntityId());
             p.sendMessage("§c§l警告！你正在尝试解除与地灵的契约！");
             p.sendMessage("§c地灵将永久消失，无法找回！");
             p.sendMessage("§c请在聊天栏输入 'release' 确认解除，输入其他内容取消。");
@@ -496,19 +640,19 @@ public class SpiritListener implements Listener {
             if (success) {
                 p.playSound(p.getLocation(), Sound.ITEM_TOTEM_USE, 1f, 1f);
                 p.spawnParticle(org.bukkit.Particle.TOTEM_OF_UNDYING, spirit.getLocation(), 20, 0.5, 0.5, 0.5, 0.1);
-                spirit.setTownName(townName); // 记录领地名
+                spirit.setTownName(townName); // 记录居所名
                 plugin.getManager().saveData();
-                p.sendMessage("§a§l领地结界已展开！");
+                p.sendMessage("§a§l居所结界已展开！");
                 p.closeInventory();
             }
             return;
         }
 
-        // 获取已有领地进行管理
+        // 获取已有居所进行管理
         com.palmergames.bukkit.towny.object.Town town = TownyIntegration.getTown(p);
         if (town == null) {
-            // 如果没有领地，且不是点击圈地按钮，提示
-            p.sendMessage("§c你还没有创建领地！请点击不死图腾图标进行圈地。");
+            // 如果没有居所，且不是点击圈地按钮，提示
+            p.sendMessage("§c你还没有创建居所！请点击不死图腾图标进行圈地。");
             return;
         }
 
@@ -526,17 +670,20 @@ public class SpiritListener implements Listener {
             safeSwitch(p, () -> SpiritGUI.openManagementMenu(p, spirit));
         } else if (clicked.getType() == Material.OAK_SIGN) {
             p.closeInventory();
-            editingBoard.add(p.getUniqueId());
+            pendingInputType.put(p.getUniqueId(), "TOWN_BOARD");
+            pendingInputData.put(p.getUniqueId(), spirit.getEntityId());
             p.sendMessage("§e请在聊天栏输入新的公告内容 (输入 'cancel' 取消):");
         } else if (clicked.getType() == Material.NAME_TAG) { 
             p.closeInventory();
-            editingTownName.put(p.getUniqueId(), spirit.getEntityId());
+            pendingInputType.put(p.getUniqueId(), "TOWN_NAME");
+            pendingInputData.put(p.getUniqueId(), spirit.getEntityId());
             p.sendMessage("§e请在聊天栏输入新的居所名称 (输入 'cancel' 取消):");
         } else if (clicked.getType() == Material.BARRIER) { 
             p.closeInventory();
-            confirmingDelete.put(p.getUniqueId(), spirit.getEntityId());
+            pendingInputType.put(p.getUniqueId(), "DELETE_CONFIRM");
+            pendingInputData.put(p.getUniqueId(), spirit.getEntityId());
             p.sendMessage("§c§l警告！你正在尝试废弃该居所！");
-            p.sendMessage("§c这将删除所有领地保护！地灵将变为流浪状态。");
+            p.sendMessage("§c这将删除所有居所保护！地灵将变为流浪状态。");
             p.sendMessage("§c请在聊天栏输入 'confirm' 确认删除，输入其他内容取消。");
         } else if (clicked.getType() == Material.IRON_SHOVEL) { 
             if (spirit.getMode() != SpiritEntity.SpiritMode.GUARDIAN) {
@@ -557,12 +704,156 @@ public class SpiritListener implements Listener {
                 p.sendMessage("§a成功废弃了该地块！");
                 p.playSound(p.getLocation(), Sound.BLOCK_GRASS_BREAK, 1f, 1f);
             } else {
-                p.sendMessage("§c废弃失败！可能这不是你的领地，或者是核心区块。");
+                p.sendMessage("§c废弃失败！可能这不是你的居所，或者是核心区块。");
             }
         } else if (clicked.getType() == Material.PLAYER_HEAD) { 
-            p.closeInventory();
-            TownyIntegration.manageMembers(p);
+            // 区分是 Slot 24 (Trust/Partner) 还是 Slot 16 (Role Info)
+            // 如果是主人，点击 Slot 24 是 Trust Menu，Slot 16 是 BARRIER (不可见/被覆盖)
+            // 如果不是主人，点击 Slot 16 是 Role Info
+            
+            if (p.getUniqueId().equals(spirit.getOwnerId()) || spirit.isPartner(p.getUniqueId())) {
+                 // 检查 Item Name 确保是信任管理按钮
+                 if (clicked.getItemMeta().hasDisplayName() && clicked.getItemMeta().getDisplayName().contains("信任与伴侣")) {
+                     safeSwitch(p, () -> SpiritGUI.openTrustMenu(p, spirit));
+                 }
+            } else {
+                 // 访客/居民查看身份，不做操作
+                 p.playSound(p.getLocation(), Sound.UI_BUTTON_CLICK, 1, 1);
+            }
         }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void handleTrustMenuClick(Player p, ItemStack clicked, SpiritEntity spirit) {
+        if (clicked.getType() == Material.ARROW) { // 返回
+            safeSwitch(p, () -> SpiritGUI.openManagementMenu(p, spirit));
+            return;
+        }
+
+        if (clicked.getType() == Material.EMERALD) { // 添加信任
+            p.closeInventory();
+            pendingInputType.put(p.getUniqueId(), "ADD_TRUST");
+            pendingInputData.put(p.getUniqueId(), spirit.getEntityId());
+            p.sendMessage("§e请在聊天栏输入要添加信任的玩家ID (输入 'cancel' 取消):");
+            return;
+        }
+
+        if (clicked.getType() == Material.RED_DYE) { // 伴侣设置/解除
+            if (spirit.getPartnerId() == null) {
+                // 设置伴侣
+                p.closeInventory();
+                pendingInputType.put(p.getUniqueId(), "SET_PARTNER");
+                pendingInputData.put(p.getUniqueId(), spirit.getEntityId());
+                p.sendMessage("§e请在聊天栏输入伴侣的玩家ID (输入 'cancel' 取消):");
+            } else {
+                // 解除伴侣
+                if (removePartnerConfirm.contains(p.getUniqueId())) {
+                    spirit.setPartnerId(null);
+                    plugin.getManager().saveData();
+                    removePartnerConfirm.remove(p.getUniqueId());
+                    p.sendMessage("§c伴侣契约已解除。");
+                    p.playSound(p.getLocation(), Sound.ENTITY_ITEM_BREAK, 1, 1);
+                    safeSwitch(p, () -> SpiritGUI.openTrustMenu(p, spirit));
+                } else {
+                    removePartnerConfirm.add(p.getUniqueId());
+                    p.sendMessage("§c请再次点击以确认解除伴侣契约！");
+                    p.playSound(p.getLocation(), Sound.UI_BUTTON_CLICK, 1, 1);
+                }
+            }
+            return;
+        }
+
+        if (clicked.getType() == Material.PLAYER_HEAD) { // 移除信任
+             String name = clicked.getItemMeta().getDisplayName().replace("§b", "");
+             if (removeTrustConfirm.containsKey(p.getUniqueId()) && removeTrustConfirm.get(p.getUniqueId()).equals(name)) {
+                 com.palmergames.bukkit.towny.object.Town town = TownyIntegration.getTown(p);
+                 org.bukkit.OfflinePlayer op = Bukkit.getOfflinePlayer(name);
+                 
+                 // 移除 Spirit 数据
+                 spirit.removeTrustedPlayer(op.getUniqueId());
+                 plugin.getManager().saveData();
+
+                 // 尝试移除 Towny 权限
+                 if (town != null) {
+                     boolean success = TownyIntegration.removeTrusted(town, name);
+                     if (success) {
+                         p.sendMessage("§a已移除 " + name + " 的信任权限。");
+                     } else {
+                         p.sendMessage("§e已从名单移除，但在居所权限同步时遇到问题(可能不影响)。");
+                     }
+                 } else {
+                     p.sendMessage("§a已移除 " + name + " 的信任权限。");
+                 }
+                 
+                 p.playSound(p.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1, 1);
+                 removeTrustConfirm.remove(p.getUniqueId());
+                 safeSwitch(p, () -> SpiritGUI.openTrustMenu(p, spirit));
+             } else {
+                 removeTrustConfirm.put(p.getUniqueId(), name);
+                 p.sendMessage("§c请再次点击以确认移除 " + name + " 的信任权限！");
+                 p.playSound(p.getLocation(), Sound.UI_BUTTON_CLICK, 1, 1);
+             }
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private void handleTrustAdd(Player p, SpiritEntity spirit, String targetName) {
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            // 验证玩家是否存在
+            org.bukkit.OfflinePlayer target = Bukkit.getOfflinePlayer(targetName);
+            if (!target.hasPlayedBefore() && !target.isOnline()) {
+                p.sendMessage("§c该玩家从未在服务器游玩过！");
+                return;
+            }
+
+            // 更新 Spirit 数据
+            spirit.addTrustedPlayer(target.getUniqueId());
+            plugin.getManager().saveData();
+
+            // 同步到 Towny
+            com.palmergames.bukkit.towny.object.Town town = TownyIntegration.getTown(p);
+            if (town != null) {
+                boolean success = TownyIntegration.addTrusted(town, targetName);
+                if (success) {
+                    p.sendMessage("§a成功添加 " + targetName + " 到信任名单！");
+                } else {
+                    p.sendMessage("§a已添加到信任名单 (居所权限同步可能失败)。");
+                }
+            } else {
+                p.sendMessage("§a成功添加 " + targetName + " 到信任名单！");
+            }
+            
+            p.playSound(p.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1, 1);
+            SpiritGUI.openTrustMenu(p, spirit);
+        });
+    }
+
+    @SuppressWarnings("deprecation")
+    private void handlePartnerSet(Player p, SpiritEntity spirit, String targetName) {
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (targetName.equalsIgnoreCase(p.getName())) {
+                p.sendMessage("§c你不能和自己结为伴侣！");
+                return;
+            }
+            
+            // 检查目标玩家是否存在
+            org.bukkit.OfflinePlayer target = Bukkit.getOfflinePlayer(targetName);
+            if (!target.hasPlayedBefore() && !target.isOnline()) {
+                p.sendMessage("§c该玩家从未在服务器游玩过！");
+                return;
+            }
+
+            if (target.isOnline()) {
+                Player targetPlayer = target.getPlayer();
+                targetPlayer.sendMessage("§d§l[地灵羁绊] §e" + p.getName() + " §f想与你结为灵魂伴侣！");
+                targetPlayer.sendMessage("§f输入 §a/esp partner accept §f接受，或 §c/esp partner deny §f拒绝。");
+                plugin.getManager().addPartnerRequest(target.getUniqueId(), p.getUniqueId());
+                p.sendMessage("§a已向 " + targetName + " 发送伴侣请求！");
+            } else {
+                plugin.getManager().addPartnerRequest(target.getUniqueId(), p.getUniqueId());
+                p.sendMessage("§e" + targetName + " 当前不在线，请求将在其上线时送达。");
+            }
+        });
     }
     
     private void handleFeed(Player p, SpiritEntity spirit, ItemStack specificFood) {
@@ -597,7 +888,7 @@ public class SpiritListener implements Listener {
 
         boolean isHungry = spirit.isHungry(); // < 20%
         double mood = spirit.getMood();
-        // int hungerValue = getFoodHungerValue(foodToUse.getType()); 
+        int hungerValue = getFoodHungerValue(foodToUse.getType()); 
         foodToUse.setAmount(foodToUse.getAmount() - 1);
         
         // 投喂逻辑调整
@@ -609,7 +900,7 @@ public class SpiritListener implements Listener {
             boolean bonus = ThreadLocalRandom.current().nextDouble() < 0.2;
             double moodAdd = bonus ? 10 : 5;
             int expAdd = bonus ? 10 : 5;
-            int hungerAdd = 5;
+            int hungerAdd = hungerValue; // 使用食物原本的饱食度
             
             spirit.addMood(moodAdd);
             spirit.addExp(expAdd);
@@ -717,7 +1008,7 @@ public class SpiritListener implements Listener {
         SpiritEntity spirit = plugin.getManager().getSpiritByDriver(event.getEntity().getUniqueId());
         if (spirit == null) return;
         
-        // 允许瞄准驯兽杖的诱饵
+        // 允许瞄准风铃杖的诱饵
         if (event.getTarget() != null && spirit.getMoveTargetEntityId() != null && 
             event.getTarget().getUniqueId().equals(spirit.getMoveTargetEntityId())) {
             return; // Allow
@@ -774,7 +1065,7 @@ public class SpiritListener implements Listener {
              // TownyIntegration.getTown(p) 获取的是 p 所属的 Town，但这里我们要获取 p 所在位置的 Town 的 Spirit。
              
              // 暂时通过市长查找
-             com.palmergames.bukkit.towny.object.Resident mayor = town.getMayor();
+             com.palmergames.bukkit.towny.object.Resident mayor = TownyIntegration.getMayor(town);
              if (mayor != null) {
                  spirit = plugin.getManager().getSpiritByOwner(mayor.getUUID());
              }
@@ -805,73 +1096,8 @@ public class SpiritListener implements Listener {
 
     @EventHandler(priority = org.bukkit.event.EventPriority.HIGH, ignoreCancelled = false)
     public void onCropGrow(BlockGrowEvent event) {
-        // 仅处理作物
-        if (!(event.getNewState().getBlockData() instanceof Ageable)) return;
-        
-        // 检查是否被 BiomeGifts 处理过 (跳级生长)
-        // 如果事件被取消，我们需要判断是因为"贫瘠惩罚"还是"富饶奖励"
-        boolean isBonus = false;
-        if (event.isCancelled()) {
-            // 检查当前方块的年龄是否已经超过了事件原本要变成的年龄
-            // 如果是，说明 BiomeGifts (或其他插件) 已经手动跳级了
-            if (event.getBlock().getBlockData() instanceof Ageable worldAge && 
-                event.getNewState().getBlockData() instanceof Ageable proposedAge) {
-                if (worldAge.getAge() > proposedAge.getAge()) {
-                    isBonus = true;
-                } else {
-                    return; // 是惩罚或普通取消，不进行地灵加成
-                }
-            } else {
-                return;
-            }
-        }
-        
-        com.palmergames.bukkit.towny.object.Town town = TownyIntegration.getTownAt(event.getBlock().getLocation());
-        if (town == null) return;
-        
-        SpiritEntity spirit = null;
-        try {
-             com.palmergames.bukkit.towny.object.Resident mayor = town.getMayor();
-             if (mayor != null) {
-                 spirit = plugin.getManager().getSpiritByOwner(mayor.getUUID());
-             }
-        } catch (Exception e) {}
-        
-        if (spirit != null && spirit.getMode() == SpiritEntity.SpiritMode.GUARDIAN) {
-            // 心情 >= 90: 作物生长加速 (独立乘区)
-            if (spirit.getMood() >= 90) {
-                // 10% 概率触发跳级生长
-                if (ThreadLocalRandom.current().nextDouble() < 0.1) {
-                    // 获取当前实际的方块数据
-                    Ageable ageable = (Ageable) event.getBlock().getBlockData();
-                    
-                    // 如果事件没被取消，且我们想加成，我们是基于"即将变成的状态"还是"当前状态"?
-                    // 如果事件没被取消，系统稍后会将 newState 应用。
-                    // 我们想要的是效果叠加。
-                    // 1. 如果 BiomeGifts 没触发 (Normal)，事件正常，newState = Age+1。我们想变成 Age+2。
-                    // 2. 如果 BiomeGifts 触发 (Bonus)，事件取消，World = Age+2。我们想变成 Age+3。
-                    
-                    if (!event.isCancelled()) {
-                        // 基于 newState 修改
-                        Ageable proposed = (Ageable) event.getNewState().getBlockData();
-                        if (proposed.getAge() < proposed.getMaximumAge()) {
-                            proposed.setAge(proposed.getAge() + 1);
-                            event.getNewState().setBlockData(proposed);
-                            // 播放特效
-                            event.getBlock().getWorld().spawnParticle(Particle.HEART, event.getBlock().getLocation().add(0.5, 0.5, 0.5), 3, 0.3, 0.3, 0.3);
-                        }
-                    } else if (isBonus) {
-                        // 基于 World Block 修改 (因为事件已取消，我们只能手动再改一次)
-                        if (ageable.getAge() < ageable.getMaximumAge()) {
-                            ageable.setAge(ageable.getAge() + 1);
-                            event.getBlock().setBlockData(ageable);
-                            // 播放特效
-                            event.getBlock().getWorld().spawnParticle(Particle.HEART, event.getBlock().getLocation().add(0.5, 0.5, 0.5), 3, 0.3, 0.3, 0.3);
-                        }
-                    }
-                }
-            }
-        }
+        // Growth logic is now handled by CuisineFarming plugin via getSpiritGrowthBonus() API.
+        // This listener is kept empty to ensure no duplicate logic interferes.
     }
 
     @EventHandler(priority = org.bukkit.event.EventPriority.MONITOR, ignoreCancelled = true)
@@ -884,7 +1110,7 @@ public class SpiritListener implements Listener {
         
         SpiritEntity spirit = null;
         try {
-             com.palmergames.bukkit.towny.object.Resident mayor = town.getMayor();
+             com.palmergames.bukkit.towny.object.Resident mayor = TownyIntegration.getMayor(town);
              if (mayor != null) {
                  spirit = plugin.getManager().getSpiritByOwner(mayor.getUUID());
              }
@@ -948,113 +1174,6 @@ public class SpiritListener implements Listener {
                      // Reflection error, ignore
                  }
             }
-        }
-    }
-    
-    @EventHandler
-    public void onChat(AsyncPlayerChatEvent event) {
-        Player p = event.getPlayer();
-        String msg = event.getMessage();
-        UUID uuid = p.getUniqueId();
-
-        if (editingBoard.contains(uuid)) {
-            event.setCancelled(true);
-            editingBoard.remove(uuid);
-            if (msg.equalsIgnoreCase("cancel")) {
-                p.sendMessage("§c已取消操作。");
-                return;
-            }
-            Bukkit.getScheduler().runTask(plugin, () -> p.performCommand("town set board " + msg));
-            return;
-        }
-
-        if (editingName.containsKey(uuid)) {
-            event.setCancelled(true);
-            UUID spiritId = editingName.remove(uuid);
-            
-            // 切换到主线程执行名字更新，确保实体元数据同步成功
-            Bukkit.getScheduler().runTask(plugin, () -> {
-                SpiritEntity spirit = plugin.getManager().getSpirit(spiritId);
-                if (spirit != null) {
-                    // 统一添加颜色代码，保持风格一致
-                    String newName = "§a" + msg.replace("&", "§");
-                    spirit.setName(newName);
-                    plugin.getManager().saveData();
-                    p.sendMessage("§a地灵的名字已更新为: " + newName);
-                } else {
-                    p.sendMessage("§c找不到地灵，改名失败。");
-                }
-            });
-            return;
-        }
-
-        if (editingTownName.containsKey(uuid)) {
-            event.setCancelled(true);
-            UUID spiritId = editingTownName.remove(uuid);
-            if (msg.equalsIgnoreCase("cancel")) {
-                p.sendMessage("§c已取消操作。");
-                return;
-            }
-            
-            SpiritEntity spirit = plugin.getManager().getSpirit(spiritId);
-            if (spirit != null) {
-                Bukkit.getScheduler().runTask(plugin, () -> {
-                    boolean success = TownyIntegration.renameTown(p, msg);
-                    if (success) {
-                        spirit.setTownName(msg);
-                        plugin.getManager().saveData();
-                        p.sendMessage("§a居所名称已更新为: " + msg);
-                    } else {
-                        p.sendMessage("§c改名失败！可能名字已被占用或格式错误。");
-                    }
-                });
-            }
-            return;
-        }
-        
-        if (confirmingDelete.containsKey(uuid)) {
-            event.setCancelled(true);
-            UUID spiritId = confirmingDelete.remove(uuid);
-            
-            if (msg.equalsIgnoreCase("confirm")) {
-                 SpiritEntity spirit = plugin.getManager().getSpirit(spiritId);
-                 if (spirit != null) {
-                     Bukkit.getScheduler().runTask(plugin, () -> {
-                         boolean success = TownyIntegration.deleteTown(p);
-                         if (success) {
-                             // 删除居所，但不删除地灵，地灵变为流浪
-                             spirit.setTownName(null);
-                             plugin.getManager().saveData();
-                             p.sendMessage("§a居所已废弃，地灵已解除绑定。");
-                         } else {
-                             p.sendMessage("§c废弃失败！请联系管理员。");
-                         }
-                     });
-                 }
-            } else {
-                p.sendMessage("§c操作已取消。");
-            }
-            return;
-        }
-
-        if (confirmingRelease.containsKey(uuid)) {
-            event.setCancelled(true);
-            UUID spiritId = confirmingRelease.remove(uuid);
-            
-            if (msg.equalsIgnoreCase("release")) {
-                 SpiritEntity spirit = plugin.getManager().getSpirit(spiritId);
-                 if (spirit != null) {
-                     Bukkit.getScheduler().runTask(plugin, () -> {
-                         spirit.remove(); // 移除实体
-                         plugin.getManager().removeSpirit(p.getUniqueId()); // 移除数据
-                         p.sendMessage("§c你解除了契约，地灵化作光点消散了...");
-                         p.playSound(p.getLocation(), Sound.ENTITY_ENDERMAN_TELEPORT, 1f, 0.5f);
-                     });
-                 }
-            } else {
-                p.sendMessage("§c操作已取消。");
-            }
-            return;
         }
     }
 

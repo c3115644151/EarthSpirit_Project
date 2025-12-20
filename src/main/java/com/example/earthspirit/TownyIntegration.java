@@ -9,19 +9,20 @@ import com.palmergames.bukkit.towny.object.TownBlock;
 import com.palmergames.bukkit.towny.object.WorldCoord;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
+import java.util.List;
 
 public class TownyIntegration {
 
     @SuppressWarnings("deprecation")
     public static boolean createTown(Player player, String townName, Location location) {
         if (!TownyAPI.getInstance().isTownyWorld(location.getWorld())) {
-            player.sendMessage("§c这个世界不支持创建领地！");
+            player.sendMessage("§c这个世界不支持创建居所！");
             return false;
         }
 
         // 检查该区块是否已被占领
         if (!TownyAPI.getInstance().isWilderness(location)) {
-            player.sendMessage("§c这里已经有领地了！");
+            player.sendMessage("§c这里已经有居所了！");
             return false;
         }
 
@@ -32,17 +33,17 @@ public class TownyIntegration {
             if (resident == null) {
                 // 理论上玩家在线应该会有 Resident，如果没有则尝试获取或报错
                 // Towny 0.96+ 应该会自动处理，但为了安全：
-                player.sendMessage("§c无法获取你的领地数据，请重新加入服务器重试。");
+                player.sendMessage("§c无法获取你的居所数据，请重新加入服务器重试。");
                 return false;
             }
 
             if (resident.hasTown()) {
-                player.sendMessage("§c你已经拥有或加入了一个领地，无法召唤地灵！");
+                player.sendMessage("§c你已经拥有或加入了一个居所，无法召唤地灵！");
                 return false;
             }
 
             if (universe.hasTown(townName)) {
-                player.sendMessage("§c领地名称 " + townName + " 已存在！");
+                player.sendMessage("§c居所名称 " + townName + " 已存在！");
                 return false;
             }
 
@@ -51,9 +52,18 @@ public class TownyIntegration {
             universe.newTown(townName);
             Town town = universe.getTown(townName);
 
-            // 2. 设置市长
+            // 1.1 设置为私有 (禁止他人加入)
+            town.setPublic(false);
+            town.setOpen(false); // Towny usually uses setOpen(false) to close joining
+
+            // 2. 设置市长 (关键修复：先添加居民，再设为市长)
+            // 某些版本的 Towny 需要居民先存在于城镇中
+            try {
+                resident.setTown(town);
+            } catch (Exception e) {
+                // Ignore if already added
+            }
             town.setMayor(resident);
-            resident.setTown(town);
 
             // 3. 设置 HomeBlock (当前位置)
             WorldCoord worldCoord = WorldCoord.parseWorldCoord(location);
@@ -92,7 +102,7 @@ public class TownyIntegration {
             return true;
 
         } catch (TownyException e) {
-            player.sendMessage("§c创建领地失败: " + e.getMessage());
+            player.sendMessage("§c创建居所失败: " + e.getMessage());
             e.printStackTrace();
             // 尝试回滚?
             try {
@@ -191,7 +201,7 @@ public class TownyIntegration {
             
             TownBlock townBlock = new TownBlock(worldCoord.getX(), worldCoord.getZ(), townyWorld);
             townBlock.setTown(town);
-            townBlock.setResident(town.getMayor()); // 归市长所有
+            townBlock.setResident(getMayor(town)); // 归市长所有
 
             universe.getDataSource().saveTownBlock(townBlock);
             // universe.getDataSource().saveTown(town); // 通常不需要显式保存 Town，但为了更新缓存可以加上
@@ -241,11 +251,11 @@ public class TownyIntegration {
             universe.getDataSource().saveTown(town);
             universe.getDataSource().saveResident(newMayor);
 
-            newOwner.sendMessage("§a你已正式接管领地 " + town.getName() + "！");
+            newOwner.sendMessage("§a你已正式接管居所 " + town.getName() + "！");
 
         } catch (Exception e) {
             e.printStackTrace();
-            newOwner.sendMessage("§c领地交接失败: " + e.getMessage());
+            newOwner.sendMessage("§c居所交接失败: " + e.getMessage());
         }
     }
 
@@ -298,7 +308,7 @@ public class TownyIntegration {
         // 假设市长就是地灵的主人
         SpiritEntity spirit = null;
         try {
-            Resident mayor = town.getMayor();
+            Resident mayor = getMayor(town);
             if (mayor != null) {
                 spirit = EarthSpiritPlugin.getInstance().getManager().getSpiritByOwner(mayor.getUUID());
             }
@@ -310,59 +320,53 @@ public class TownyIntegration {
     }
 
     public static void updateTownPermissions(Town town, SpiritEntity spirit) {
-        boolean protectionActive = true;
+        if (town == null || spirit == null) return;
         
-        if (spirit != null && spirit.getMode() == SpiritEntity.SpiritMode.GUARDIAN) {
-            // 检查心情和饱食度
-            if (spirit.getMood() <= 0 || spirit.getHunger() <= 0) {
-                protectionActive = false;
-            }
-        }
+        // 自动管理权限:
+        // 1. 关闭 PVP
+        town.setPVP(false);
+        // 2. 开启/关闭 爆炸 (守护:关, 旅伴:开)
+        town.setExplosion(spirit.getMode() != SpiritEntity.SpiritMode.GUARDIAN);
+        // 3. 开启/关闭 火蔓延 (守护:关, 旅伴:开)
+        town.setFire(spirit.getMode() != SpiritEntity.SpiritMode.GUARDIAN);
+        // 4. 怪物生成 (守护:关, 旅伴:开)
+        town.setHasMobs(spirit.getMode() != SpiritEntity.SpiritMode.GUARDIAN);
 
-        // 同步所有 TownBlock 的权限状态
-        for (TownBlock tb : town.getTownBlocks()) {
-            boolean isHomeBlock = false;
-            try {
-                if (town.hasHomeBlock() && town.getHomeBlock().equals(tb)) {
-                    isHomeBlock = true;
-                }
-            } catch (TownyException e) {
-                // ignore
-            }
 
-            // 如果保护失效且不是核心区块，强制开启破坏权限 (即失去保护)
-            // 在 Towny 中，权限为 true 表示允许该行为
-            // explosion=true -> 允许爆炸
-            // fire=true -> 允许火势蔓延
-            // mobs=true -> 允许刷怪 (通常保护是防刷怪，还是防怪物破坏？Towny是防刷怪/防怪物生成)
-            // 用户的需求是 "领地防爆、防破坏等正常运行" -> 保护有效
-            // "失效" -> 允许爆炸/破坏
-            
-            if (!protectionActive && !isHomeBlock) {
-                tb.getPermissions().explosion = true;
-                tb.getPermissions().fire = true;
-                tb.getPermissions().mobs = true; // 也许也让怪能生成
-                // pvp? 用户没明说，但通常保护失效意味着危险，开启PVP也合理。暂不强开PVP，以免误伤
-                tb.getPermissions().pvp = true; 
-            } else {
-                // 保护有效，或者核心区块 -> 恢复为居所设定
-                tb.getPermissions().explosion = town.isExplosion();
-                tb.getPermissions().fire = town.isFire();
-                tb.getPermissions().mobs = town.hasMobs();
-                tb.getPermissions().pvp = town.isPVP();
-            }
-            
-            // 保存更改
-            TownyUniverse.getInstance().getDataSource().saveTownBlock(tb);
+        // 保存更改
+        TownyUniverse.getInstance().getDataSource().saveTown(town);
+    }
+
+    // --- Whitelist / Partner Helpers ---
+
+    public static boolean addTrusted(Town town, String playerName) {
+        try {
+            Resident r = TownyUniverse.getInstance().getResident(playerName);
+            if (r == null) return false;
+            r.setTown(town);
+            TownyUniverse.getInstance().getDataSource().saveTown(town);
+            TownyUniverse.getInstance().getDataSource().saveResident(r);
+            return true;
+        } catch (Exception e) {
+            return false;
         }
     }
 
-    public static void manageMembers(Player player) {
-        player.sendMessage("§e[地灵] §f成员管理功能：");
-        player.sendMessage("§f- 邀请成员: /town add <玩家名>");
-        player.sendMessage("§f- 踢出成员: /town kick <玩家名>");
-        player.sendMessage("§f- 查看列表: /town online");
-        // 未来可以集成 GUI
+    public static boolean removeTrusted(Town town, String playerName) {
+        try {
+            Resident r = TownyUniverse.getInstance().getResident(playerName);
+            if (r == null) return false;
+            r.setTown(null); // Remove from town
+            TownyUniverse.getInstance().getDataSource().saveTown(town);
+            TownyUniverse.getInstance().getDataSource().saveResident(r);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public static List<Resident> getResidents(Town town) {
+        return town.getResidents();
     }
 
     public static boolean isResident(String townName, Player player) {
@@ -375,11 +379,87 @@ public class TownyIntegration {
         }
     }
 
+    // Duplicate renameTown removed
+
+
     public static Town getTownAt(Location location) {
         try {
             return TownyAPI.getInstance().getTown(location);
         } catch (Exception e) {
             return null;
         }
+    }
+
+    public static SpiritEntity getTownSpirit(Town town, EarthSpiritPlugin plugin) {
+        if (town == null) return null;
+        
+        // 1. Try Mayor first (Fastest)
+        try {
+            Resident mayor = town.getMayor();
+            if (mayor != null) {
+                SpiritEntity spirit = plugin.getManager().getSpiritByOwner(mayor.getUUID());
+                if (spirit != null) return spirit;
+            }
+        } catch (Exception e) {}
+
+        // 2. Fallback: Iterate all residents to find who owns the spirit for this town
+        // This handles cases where:
+        // - Mayor data is corrupted (null)
+        // - We want to support "Co-Owner" logic implicitly (if we decide to allow partner's spirit to work, though user said "original creator's spirit")
+        // - User said: "默认创建居所的那个玩家的地灵作为领地的加成判定" -> The spirit that has this townName recorded.
+        try {
+            List<Resident> residents = town.getResidents();
+            if (residents != null) {
+                for (Resident r : residents) {
+                    SpiritEntity s = plugin.getManager().getSpiritByOwner(r.getUUID());
+                    if (s != null && town.getName().equals(s.getTownName())) {
+                        return s;
+                    }
+                }
+            }
+        } catch (Exception e) {}
+        
+        return null;
+    }
+
+    public static Resident getMayor(Town town) {
+        try {
+            Resident mayor = town.getMayor();
+            if (mayor != null) return mayor;
+            
+            // Fallback 1: re-fetch town from universe
+            if (TownyUniverse.getInstance().hasTown(town.getName())) {
+                 Town uTown = TownyUniverse.getInstance().getTown(town.getName());
+                 if (uTown != null) {
+                     mayor = uTown.getMayor();
+                     if (mayor != null) return mayor;
+                 }
+            }
+
+            // Fallback 2: Check residents (Deep Search)
+            List<Resident> residents = town.getResidents();
+            if (residents != null && !residents.isEmpty()) {
+                // 2.1: If only one resident, they MUST be the mayor
+                if (residents.size() == 1) {
+                    return residents.get(0);
+                }
+                
+                // 2.2: Check if any resident name is contained in town name (Heuristic)
+                // e.g. "cy311's Town" -> "cy311"
+                String tName = town.getName();
+                for (Resident r : residents) {
+                     if (tName.contains(r.getName())) {
+                         return r;
+                     }
+                }
+
+                // 2.3: Return the first resident as a last resort
+                // This ensures we at least get a valid Player UUID to check for Spirit ownership
+                return residents.get(0);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
     }
 }

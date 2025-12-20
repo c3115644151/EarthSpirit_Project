@@ -22,7 +22,7 @@
 | **皮肤管理** | `SpiritSkinManager.java` | 管理自定义头颅纹理、表情切换（开心/难过/眨眼）及缓存。 |
 | **任务调度** | `SpiritTask.java` | 全局 Runnable，负责每 tick 驱动所有地灵的更新 (`tick()`)。 |
 | **特效渲染** | `SpiritParticleTask.java` | 负责处理环境粒子特效（如富集区金粉、灵域加成蓝火），基于 `BiomeGiftsHelper` 判断。 |
-| **Towny 集成** | `TownyIntegration.java` | 负责与 Towny 插件的数据交互（自动创建城镇、领地加成判断、权限同步）。 |
+| **Towny 集成** | `TownyIntegration.java` | 负责与 Towny 插件的数据交互（自动创建城镇、居所加成判断、权限同步）。 |
 | **跨插件支持** | `BiomeGiftsHelper.java` | 通过反射软连接 `BiomeGifts` 插件，实现群系判断和物品获取，无需强依赖。 |
 | **插件入口** | `EarthSpiritPlugin.java` | 负责插件初始化、指令注册 (`/getbell`, `/getwand`) 及配方注册。 |
 
@@ -47,12 +47,12 @@
     *   **Hunger (饱食度)**: 随时间消耗。过低会触发“饿饿...饭饭...”悬浮气泡。
     *   **Mode (模式)**: 
         *   `COMPANION`: 跟随玩家，提供背包。
-        *   `GUARDIAN`: 驻守原地（需在领地内），生成底盘，提供范围加成。
+        *   `GUARDIAN`: 驻守原地（需在居所内），生成底盘，提供范围加成。
 
 ### 3.2 交互与物品 (`SpiritListener.java`)
 #### 物品识别
 *   **灵契风铃 (Bell)**: `CustomModelData: 10001` - 右键召唤/收回地灵。
-*   **驯兽杖 (Blaze Rod)**: `CustomModelData: 10002` - 右键地面指挥地灵移动/守卫。
+*   **风铃杖 (Blaze Rod)**: `CustomModelData: 10002` - 右键地面指挥地灵移动/守卫。
 
 #### 投喂机制
 *   **动态识别**: 使用 `Material.isEdible()` 兼容所有模组食物。
@@ -64,8 +64,12 @@
 ### 3.3 Towny 深度集成 (`TownyIntegration.java`)
 *   **一键建城**: 玩家通过特定交互可直接创建 Towny 城镇，自动设置 HomeBlock 和 Spawn。
 *   **灵域加成**: 当地灵处于 **GUARDIAN** 模式且心情高涨时，为城镇提供 Buff：
-    *   **减伤**: 领地内受到的伤害减少 10%-20%。
-    *   **生长**: 使得领地内作物有概率跳级生长（需 BiomeGifts 支持）。
+    *   **减伤**: 居所内受到的伤害减少 10%-20%。
+    *   **生长 (CuisineFarming联动)**: 
+        *   不再直接干预作物。
+        *   提供 **Growth Bonus** API 供 `CuisineFarming` 调用。
+        *   加成逻辑：地灵心情 >= 90 提供满额加成，< 60 无加成。
+        *   **缓存优化**: 实现了基于 Chunk 的 `chunkGrowthBonusCache`，缓存时间 1 分钟，极大减少了高频生长事件中对 Towny API 的查询压力。
 
 ### 3.4 嘴馋与每日任务 (`CravingManager.java`)
 *   **每日刷新**: 每日凌晨 4:00 重置。
@@ -87,7 +91,7 @@
 | 指令 | 权限 | 描述 |
 | :--- | :--- | :--- |
 | `/getbell` | `earthspirit.admin` | 获取灵契风铃（管理员用）。 |
-| `/getwand` | `earthspirit.admin` | 获取驯兽杖（管理员用）。 |
+| `/getwand` | `earthspirit.admin` | 获取风铃杖（管理员用）。 |
 
 ---
 
@@ -96,7 +100,7 @@
 *   **Q: 地灵无法移动/卡住？**
     *   A: 尝试使用灵契风铃收回再重新召唤。这是双实体同步偶尔会出现的“脱钩”现象。
 *   **Q: 没有灵域加成效果？**
-    *   A: 检查：1. 是否在 Towny 领地内；2. 地灵是否为 GUARDIAN 模式；3. 地灵心情是否 >= 60。
+    *   A: 检查：1. 是否在 Towny 居所内；2. 地灵是否为 GUARDIAN 模式；3. 地灵心情是否 >= 60。
 *   **Q: 无法投喂？**
     *   A: 确保物品可食用。如果地灵属于他人，只有在地灵“抑郁”（被遗弃）状态下才允许陌生人投喂（触发过继逻辑）。
 

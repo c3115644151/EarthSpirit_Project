@@ -7,7 +7,7 @@ import org.bukkit.inventory.meta.SkullMeta;
 import org.bukkit.profile.PlayerProfile;
 import org.bukkit.profile.PlayerTextures;
 
-import java.net.URL;
+// import java.net.URL;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
@@ -77,6 +77,9 @@ public class SpiritSkinManager {
                     profile.setTextures(textures);
                     
                     meta.setOwnerProfile(profile);
+                    
+                    // 设置 CustomModelData 以支持资源包 3D 模型替换
+                    meta.setCustomModelData(10004);
                 }
             }
         } catch (Exception e) {

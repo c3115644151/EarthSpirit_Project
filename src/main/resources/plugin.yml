@@ -9,5 +9,9 @@ commands:
     description: 获取灵契风铃
     permission: earthspirit.admin
   getwand:
-    description: 获取驯兽杖
+    description: 获取风铃杖
     permission: earthspirit.admin
+  esp:
+    description: 地灵系统主命令
+    aliases: [earthspirit]
+    usage: /esp <subcommand>

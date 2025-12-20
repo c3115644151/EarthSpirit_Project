@@ -3,16 +3,18 @@ package com.example.earthspirit;
 import org.bukkit.Bukkit;
 import org.bukkit.Color;
 import org.bukkit.Location;
-import org.bukkit.Material;
+// import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.block.Block;
 import org.bukkit.block.data.Ageable;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
+import java.util.Random;
 
 public class SpiritParticleTask extends BukkitRunnable {
 
     private final EarthSpiritPlugin plugin;
+    private final Random random = new Random();
 
     public SpiritParticleTask(EarthSpiritPlugin plugin) {
         this.plugin = plugin;
@@ -70,9 +72,10 @@ public class SpiritParticleTask extends BukkitRunnable {
 
         if (spiritBonus) {
             // Blue particles (Soul Fire Flame)
-            // Increase count and spread slightly to ensure visibility
-            // Offset y by 0.8 to be above crop
-            block.getWorld().spawnParticle(Particle.SOUL_FIRE_FLAME, block.getLocation().add(0.5, 0.8, 0.5), 5, 0.3, 0.3, 0.3, 0.02);
+            // Reduced count to avoid visual clutter (10% chance per block)
+            if (random.nextDouble() < 0.1) {
+                block.getWorld().spawnParticle(Particle.SOUL_FIRE_FLAME, block.getLocation().add(0.5, 0.8, 0.5), 1, 0.2, 0.2, 0.2, 0.01);
+            }
         }
     }
 }

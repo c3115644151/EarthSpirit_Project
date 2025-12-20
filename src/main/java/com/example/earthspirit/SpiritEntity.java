@@ -15,6 +15,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.entity.Wolf;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 // import org.bukkit.util.Vector;
 
 import org.bukkit.entity.TextDisplay;
@@ -32,6 +33,8 @@ import org.bukkit.block.Block;
 
 import com.example.earthspirit.cravings.DailyRequest;
 import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.NamespacedKey;
+import org.bukkit.persistence.PersistentDataType;
 
 public class SpiritEntity {
     private DailyRequest dailyRequest;
@@ -71,6 +74,38 @@ public class SpiritEntity {
     // 动画状态
     private UUID chassisEntityId; // 底盘实体ID (Guardian模式)
     private UUID driverId; // 驱动实体ID (Wolf)
+    
+    // 信任与伴侣
+    private java.util.Set<UUID> trustedPlayers = new java.util.HashSet<>();
+    private UUID partnerId;
+    
+    public java.util.Set<UUID> getTrustedPlayers() {
+        return trustedPlayers;
+    }
+    
+    public void addTrustedPlayer(UUID uuid) {
+        trustedPlayers.add(uuid);
+    }
+    
+    public void removeTrustedPlayer(UUID uuid) {
+        trustedPlayers.remove(uuid);
+    }
+    
+    public UUID getPartnerId() {
+        return partnerId;
+    }
+    
+    public void setPartnerId(UUID partnerId) {
+        this.partnerId = partnerId;
+    }
+    
+    public boolean isPartner(UUID uuid) {
+        return partnerId != null && partnerId.equals(uuid);
+    }
+    
+    public boolean isTrusted(UUID uuid) {
+        return trustedPlayers.contains(uuid) || (partnerId != null && partnerId.equals(uuid)) || ownerId.equals(uuid);
+    }
     
     // 交互与状态
     private long lastFoodTime;
@@ -127,6 +162,10 @@ public class SpiritEntity {
     }
 
     public SpiritEntity(UUID ownerId, String name, Location spawnLocation) {
+        this(ownerId, name, spawnLocation, true);
+    }
+
+    public SpiritEntity(UUID ownerId, String name, Location spawnLocation, boolean spawnNow) {
         this.ownerId = ownerId;
         this.name = name;
         this.mood = 60.0;
@@ -141,7 +180,105 @@ public class SpiritEntity {
         this.lastHungerUpdateTime = System.currentTimeMillis();
         initTransientFields();
         
-        spawnEntity(spawnLocation);
+        if (spawnNow) {
+            spawnEntity(spawnLocation);
+        }
+    }
+    
+    // 专门用于从配置加载实体，尝试链接现有实体而非直接生成
+    public void loadEntity(Location loc, UUID savedEntityId, UUID savedDriverId, UUID savedChassisId) {
+        if (loc.getWorld() == null) return;
+        
+        // 1. 强制加载区块，确保能找到实体
+        if (!loc.getChunk().isLoaded()) {
+            loc.getChunk().load();
+        }
+        
+        boolean linked = false;
+        
+        // 2. 尝试通过 UUID 链接主实体
+        if (savedEntityId != null) {
+            // 注意：getEntity 可能在区块刚加载时返回 null，即使实体存在
+            Entity e = Bukkit.getEntity(savedEntityId);
+            if (e == null) {
+                 // 尝试遍历区块实体 (更可靠)
+                 for (Entity chunkEntity : loc.getChunk().getEntities()) {
+                     if (chunkEntity.getUniqueId().equals(savedEntityId)) {
+                         e = chunkEntity;
+                         break;
+                     }
+                 }
+            }
+            
+            if (e instanceof ArmorStand && e.isValid()) {
+                this.entityId = e.getUniqueId();
+                linked = true;
+            }
+        }
+        
+        // 3. 如果 UUID 链接失败，尝试通过 PDC 空间搜索链接
+        if (!linked) {
+            linked = tryLinkExistingEntity(loc);
+        }
+        
+        // 4. 如果都失败了，生成新的
+        if (!linked) {
+            spawnEntity(loc);
+        } else {
+            // 如果链接成功，尝试恢复组件
+            
+            // 恢复 Driver
+            if (savedDriverId != null) {
+                Entity d = Bukkit.getEntity(savedDriverId);
+                // 同上，尝试区块搜索
+                if (d == null) {
+                    for (Entity chunkEntity : loc.getChunk().getEntities()) {
+                        if (chunkEntity.getUniqueId().equals(savedDriverId)) {
+                            d = chunkEntity;
+                            break;
+                        }
+                    }
+                }
+                
+                if (d instanceof Wolf && d.isValid()) {
+                    this.driverId = d.getUniqueId();
+                }
+            }
+            // 如果没找到 Driver，tryLinkExistingEntity 可能已经找过了，或者需要生成
+            if (this.driverId == null || Bukkit.getEntity(this.driverId) == null) {
+                // 再次尝试空间搜索 Wolf
+                NamespacedKey key = new NamespacedKey(EarthSpiritPlugin.getInstance(), "spirit_owner");
+                for (Entity d : loc.getWorld().getNearbyEntities(loc, 5, 5, 5)) {
+                    if (d instanceof Wolf && d.getPersistentDataContainer().has(key, PersistentDataType.STRING)) {
+                        String dOwner = d.getPersistentDataContainer().get(key, PersistentDataType.STRING);
+                        if (dOwner != null && dOwner.equals(ownerId.toString())) {
+                            this.driverId = d.getUniqueId();
+                            break;
+                        }
+                    }
+                }
+                // 还是没有，生成新的
+                if (this.driverId == null) {
+                    spawnDriver(loc);
+                }
+            }
+            
+            // 恢复 Chassis (如果存在)
+            if (savedChassisId != null) {
+                Entity c = Bukkit.getEntity(savedChassisId);
+                 if (c == null) {
+                    for (Entity chunkEntity : loc.getChunk().getEntities()) {
+                        if (chunkEntity.getUniqueId().equals(savedChassisId)) {
+                            c = chunkEntity;
+                            break;
+                        }
+                    }
+                }
+                if (c instanceof ArmorStand && c.isValid()) {
+                    this.chassisEntityId = c.getUniqueId();
+                }
+            }
+        }
     }
     
     // 反序列化后初始化
@@ -213,9 +350,55 @@ public class SpiritEntity {
         }
     }
 
+    private boolean tryLinkExistingEntity(Location loc) {
+        NamespacedKey key = new NamespacedKey(EarthSpiritPlugin.getInstance(), "spirit_owner");
+        // 扩大搜索范围，防止实体轻微位移导致找不到
+        for (Entity e : loc.getWorld().getNearbyEntities(loc, 5, 5, 5)) {
+            if (e instanceof ArmorStand) {
+                // 优先检查 PDC
+                if (e.getPersistentDataContainer().has(key, PersistentDataType.STRING)) {
+                    String ownerStr = e.getPersistentDataContainer().get(key, PersistentDataType.STRING);
+                    if (ownerStr != null && ownerStr.equals(ownerId.toString())) {
+                        // 找到地灵实体
+                        this.entityId = e.getUniqueId();
+                        
+                        // 尝试寻找 Driver
+                        for (Entity d : loc.getWorld().getNearbyEntities(e.getLocation(), 5, 5, 5)) {
+                            if (d instanceof Wolf) {
+                                if (d.getPersistentDataContainer().has(key, PersistentDataType.STRING)) {
+                                    String dOwner = d.getPersistentDataContainer().get(key, PersistentDataType.STRING);
+                                    if (dOwner != null && dOwner.equals(ownerId.toString())) {
+                                        this.driverId = d.getUniqueId();
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // 如果 Driver 丢失，重新生成
+                        if (driverId == null || Bukkit.getEntity(driverId) == null) {
+                            spawnDriver(e.getLocation());
+                        }
+                        
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     private void spawnEntity(Location loc) {
         if (loc.getWorld() == null) return;
         
+        // 尝试重连现有实体 (持久化支持)
+        if (tryLinkExistingEntity(loc)) {
+            return;
+        }
+        
+        // 1. 清理该位置可能存在的残留地灵 (Ghost Entities)
+        removeNearbyGhosts(loc);
+
         // 生成盔甲架
         ArmorStand as = (ArmorStand) loc.getWorld().spawnEntity(loc, EntityType.ARMOR_STAND);
         as.setVisible(false);
@@ -225,6 +408,10 @@ public class SpiritEntity {
         as.setInvulnerable(true);
         as.setCustomName(name);
         as.setCustomNameVisible(true);
+        
+        // 标记为地灵实体 (PDC)
+        NamespacedKey key = new NamespacedKey(EarthSpiritPlugin.getInstance(), "spirit_owner");
+        as.getPersistentDataContainer().set(key, PersistentDataType.STRING, ownerId.toString());
         
         // 设置外观 (能量球)
         as.getEquipment().setHelmet(new ItemStack(Material.SEA_LANTERN));
@@ -241,21 +428,57 @@ public class SpiritEntity {
         
         spawnDriver(loc);
     }
+    
+    // 清理残留的幽灵实体 (重启服务器后可能残留的无主实体)
+    private void removeNearbyGhosts(Location loc) {
+        if (loc.getWorld() == null) return;
+        NamespacedKey key = new NamespacedKey(EarthSpiritPlugin.getInstance(), "spirit_owner");
+        
+        // 扫描半径 2 格内的实体
+        for (Entity e : loc.getWorld().getNearbyEntities(loc, 2, 2, 2)) {
+            if (e instanceof ArmorStand || e instanceof Wolf) {
+                // 判定条件 1: PDC 标签匹配 (新版逻辑)
+                boolean isGhost = false;
+                if (e.getPersistentDataContainer().has(key, PersistentDataType.STRING)) {
+                    String ownerStr = e.getPersistentDataContainer().get(key, PersistentDataType.STRING);
+                    if (ownerStr != null && ownerStr.equals(ownerId.toString())) {
+                        isGhost = true;
+                    }
+                } 
+                // 判定条件 2: 名字匹配 (兼容旧版清理)
+                else if (e.getCustomName() != null && e.getCustomName().equals(this.name)) {
+                    isGhost = true;
+                }
+                
+                if (isGhost) {
+                    e.remove(); // 移除旧的实体
+                }
+            }
+        }
+    }
 
     private void spawnDriver(Location loc) {
         if (loc.getWorld() == null) return;
         Wolf wolf = (Wolf) loc.getWorld().spawnEntity(loc, EntityType.WOLF);
-        Player owner = Bukkit.getPlayer(ownerId);
+        
+        // 标记为地灵实体 (PDC)
+        NamespacedKey key = new NamespacedKey(EarthSpiritPlugin.getInstance(), "spirit_owner");
+        wolf.getPersistentDataContainer().set(key, PersistentDataType.STRING, ownerId.toString());
+        
+        // 支持离线主人 (OfflinePlayer)
+        org.bukkit.OfflinePlayer owner = Bukkit.getOfflinePlayer(ownerId);
         if (owner != null) {
             wolf.setOwner(owner);
             wolf.setTamed(true);
         }
+        
         wolf.setInvisible(true);
         wolf.setSilent(true);
         wolf.setInvulnerable(true);
         wolf.setCollidable(false);
         wolf.setBaby();
         wolf.setAgeLock(true);
+        wolf.setPersistent(true); // 允许保存到区块文件，支持重启持久化
         // 提高移动速度，紧跟玩家
         if (wolf.getAttribute(Attribute.GENERIC_MOVEMENT_SPEED) != null) {
             wolf.getAttribute(Attribute.GENERIC_MOVEMENT_SPEED).setBaseValue(0.45);
@@ -688,9 +911,21 @@ public class SpiritEntity {
         chassis.setBasePlate(false);
         chassis.setSmall(true);
         chassis.setMarker(true); 
+        chassis.setPersistent(true); // 允许持久化保存
         
-        // 底盘外观：平滑石台阶
-        chassis.getEquipment().setHelmet(new ItemStack(Material.SMOOTH_STONE_SLAB));
+        // 标记 PDC
+        NamespacedKey key = new NamespacedKey(EarthSpiritPlugin.getInstance(), "spirit_owner");
+        chassis.getPersistentDataContainer().set(key, PersistentDataType.STRING, ownerId.toString());
+        
+        // 底盘外观：平滑石台阶 (并设置 CustomModelData: 10003 以供资源包覆盖)
+        ItemStack baseItem = new ItemStack(Material.SMOOTH_STONE_SLAB);
+        ItemMeta baseMeta = baseItem.getItemMeta();
+        if (baseMeta != null) {
+            baseMeta.setCustomModelData(10003);
+            baseItem.setItemMeta(baseMeta);
+        }
+        chassis.getEquipment().setHelmet(baseItem);
+
         // 锁定装备
         for (EquipmentSlot slot : EquipmentSlot.values()) {
             chassis.addEquipmentLock(slot, ArmorStand.LockType.REMOVING_OR_CHANGING);
@@ -932,15 +1167,15 @@ public class SpiritEntity {
     }
     
     private void transferOwnership(Player newOwner) {
-        // 地灵过继新逻辑：地灵不换主人，只转让领地，然后地灵消失
+        // 地灵过继新逻辑：地灵不换主人，只转让居所，然后地灵消失
         
         com.palmergames.bukkit.towny.object.Town town = TownyIntegration.getTownAt(this.currentLocation);
         if (town != null && town.getName().equals(this.townName)) {
              TownyIntegration.transferOwnership(town.getName(), newOwner);
-             newOwner.sendMessage("§a你通过不懈的努力，感化了这片土地，获得了领地的所有权！");
+             newOwner.sendMessage("§a你通过不懈的努力，感化了这片土地，获得了居所的所有权！");
              newOwner.sendMessage("§e原来的地灵完成了它的使命，化作光点消散了...");
         } else {
-             newOwner.sendMessage("§c过继异常：当前位置不在地灵管辖的领地内。");
+             newOwner.sendMessage("§c过继异常：当前位置不在地灵管辖的居所内。");
         }
         
         this.strangerFeedDays.clear();
@@ -962,7 +1197,7 @@ public class SpiritEntity {
     }
     
     private void teleportToOwnerTown() {
-        // 如果当前已经在领地内，不做处理
+        // 如果当前已经在居所内，不做处理
         if (townName != null && currentLocation != null) {
             com.palmergames.bukkit.towny.object.Town town = TownyIntegration.getTownAt(currentLocation);
             if (town != null && town.getName().equals(townName)) {
@@ -970,7 +1205,7 @@ public class SpiritEntity {
             }
         }
         
-        // 如果有领地，传送到领地重生点
+        // 如果有居所，传送到居所重生点
         if (townName != null) {
             try {
                 com.palmergames.bukkit.towny.object.Town town = com.palmergames.bukkit.towny.TownyUniverse.getInstance().getTown(townName);
@@ -991,7 +1226,7 @@ public class SpiritEntity {
                     // 通知主人
                     Player owner = Bukkit.getPlayer(ownerId);
                     if (owner != null) {
-                        owner.sendMessage("§c你的地灵 " + name + " 因为长期被忽视，已经陷入抑郁了！它回到了领地中心，并且不再提供保护！");
+                        owner.sendMessage("§c你的地灵 " + name + " 因为长期被忽视，已经陷入抑郁了！它回到了居所中心，并且不再提供保护！");
                     }
                 }
             } catch (Exception e) {
@@ -1032,7 +1267,7 @@ public class SpiritEntity {
         double oldHunger = this.hunger;
         this.hunger = Math.max(0, Math.min(getMaxHunger(), hunger)); 
         
-        // 状态改变(从0变有，或从有变0)，触发领地保护更新
+        // 状态改变(从0变有，或从有变0)，触发居所保护更新
         boolean wasStarving = (oldHunger <= 0);
         boolean isStarving = (this.hunger <= 0);
         
@@ -1128,6 +1363,7 @@ public class SpiritEntity {
     
     // Getters
     public UUID getOwnerId() { return ownerId; }
+
     public String getName() { return name; }
     public String getTownName() { return townName; }
     public void setTownName(String townName) { this.townName = townName; }
@@ -1266,8 +1502,25 @@ public class SpiritEntity {
         section.set("mode", mode.name());
         section.set("type", type.name());
         
+        // Save Entity IDs
+        if (entityId != null) section.set("entityId", entityId.toString());
+        if (driverId != null) section.set("driverId", driverId.toString());
+        if (chassisEntityId != null) section.set("chassisEntityId", chassisEntityId.toString());
+        
         prepareSave(); // Prepare inventoryData
         if (inventoryData != null) section.set("inventoryData", inventoryData);
+        
+        // Save Trust & Partner
+        if (!trustedPlayers.isEmpty()) {
+            java.util.List<String> trustedList = new java.util.ArrayList<>();
+            for (UUID uuid : trustedPlayers) {
+                trustedList.add(uuid.toString());
+            }
+            section.set("trustedPlayers", trustedList);
+        }
+        if (partnerId != null) {
+            section.set("partnerId", partnerId.toString());
+        }
         
         // Save maps
         ConfigurationSection feedDays = section.createSection("strangerFeedDays");
@@ -1308,8 +1561,20 @@ public class SpiritEntity {
                 // Prevent NPE in constructor
                 loc = new Location(Bukkit.getWorld("world"), 0, 100, 0); 
             }
+            
+            // 读取保存的实体 ID
+            UUID savedEntityId = null;
+            if (section.contains("entityId")) savedEntityId = UUID.fromString(section.getString("entityId"));
+            
+            UUID savedDriverId = null;
+            if (section.contains("driverId")) savedDriverId = UUID.fromString(section.getString("driverId"));
+            
+            UUID savedChassisId = null;
+            if (section.contains("chassisEntityId")) savedChassisId = UUID.fromString(section.getString("chassisEntityId"));
 
-            SpiritEntity spirit = new SpiritEntity(ownerId, name, loc);
+            // 使用新构造函数，暂时不生成实体 (false)
+            SpiritEntity spirit = new SpiritEntity(ownerId, name, loc, false);
+            
             spirit.townName = section.getString("townName");
             spirit.mood = section.getDouble("mood");
             spirit.hunger = section.getDouble("hunger");
@@ -1318,6 +1583,20 @@ public class SpiritEntity {
             spirit.mode = SpiritMode.valueOf(section.getString("mode", "COMPANION"));
             spirit.type = SpiritType.valueOf(section.getString("type", "NORMAL"));
             spirit.inventoryData = section.getString("inventoryData");
+            
+            // Load Trust & Partner
+            if (section.contains("trustedPlayers")) {
+                for (String uuidStr : section.getStringList("trustedPlayers")) {
+                    try {
+                        spirit.trustedPlayers.add(UUID.fromString(uuidStr));
+                    } catch (IllegalArgumentException e) {}
+                }
+            }
+            if (section.contains("partnerId")) {
+                try {
+                    spirit.partnerId = UUID.fromString(section.getString("partnerId"));
+                } catch (IllegalArgumentException e) {}
+            }
             
             ConfigurationSection feedDays = section.getConfigurationSection("strangerFeedDays");
             if (feedDays != null) {
@@ -1357,6 +1636,9 @@ public class SpiritEntity {
                     }
                 }
             }
+            
+            // 加载并链接实体
+            spirit.loadEntity(loc, savedEntityId, savedDriverId, savedChassisId);
             
             spirit.initAfterLoad();
             return spirit;

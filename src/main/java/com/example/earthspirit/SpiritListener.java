@@ -27,7 +27,6 @@ import org.bukkit.Particle;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.block.BlockGrowEvent;
 // import org.bukkit.event.block.BlockDropItemEvent;
-import org.bukkit.block.data.Ageable;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.Instant;
@@ -1122,20 +1121,19 @@ public class SpiritListener implements Listener {
                      Object config = BiomeGiftsHelper.getCropConfig(event.getBlock().getType());
                      boolean isCrop = (config != null);
                      
+                     // Unified Drop Logic Update:
+                     // If it is a crop, BiomeGifts (or CuisineFarming) now handles the unified drop logic
+                     // (Base + Fertility + Spirit).
+                     // So we SKIP crop logic here to avoid double drops or independent rolls.
+                     if (isCrop) {
+                         return;
+                     }
+                     
                      if (config == null) {
                          config = BiomeGiftsHelper.getOreConfig(event.getBlock().getType());
                      }
                      
                      if (config != null) {
-                         // 如果是作物配置，必须检查是否成熟
-                         if (isCrop) {
-                             if (event.getBlock().getBlockData() instanceof Ageable ageable) {
-                                 if (ageable.getAge() != ageable.getMaximumAge()) return;
-                             } else {
-                                 // 如果配置了作物但方块不是可生长的，忽略
-                                 return;
-                             }
-                         }
                          
                          Class<?> configClass = config.getClass();
                          double baseChance = configClass.getField("baseChance").getDouble(config);

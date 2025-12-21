@@ -180,6 +180,14 @@ public class SpiritManager {
         
         return bonus;
     }
+
+    /**
+     * API for CuisineFarming to get specialty drop bonus.
+     * Currently reuses the growth bonus logic (Guardian Mode + High Mood = +10%).
+     */
+    public double getSpiritDropBonus(Location loc) {
+        return getSpiritGrowthBonus(loc);
+    }
     
     private long getChunkKey(Location loc) {
         return ((long) loc.getBlockX() >> 4) | (((long) loc.getBlockZ() >> 4) << 32);

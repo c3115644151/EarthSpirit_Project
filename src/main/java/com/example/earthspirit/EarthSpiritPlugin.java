@@ -12,7 +12,10 @@ import org.bukkit.plugin.java.JavaPlugin;
 import java.util.Collections;
 import java.util.UUID;
 
+import com.example.earthspirit.configuration.ConfigManager;
+import com.example.earthspirit.configuration.I18n;
 import com.example.earthspirit.cravings.CravingManager;
+import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 
 public class EarthSpiritPlugin extends JavaPlugin {
     private static EarthSpiritPlugin instance;
@@ -29,6 +32,10 @@ public class EarthSpiritPlugin extends JavaPlugin {
     public void onEnable() {
         instance = this;
         
+        // Initialize Configuration and I18n
+        ConfigManager.init(this);
+        I18n.init(this);
+        
         // 初始化 BiomeGifts 集成
         BiomeGiftsHelper.init();
 
@@ -36,7 +43,7 @@ public class EarthSpiritPlugin extends JavaPlugin {
         this.cravingManager = new CravingManager(this);
         
         // 启动粒子效果任务 (每5秒运行一次)
-        new SpiritParticleTask(this).runTaskTimer(this, 100L, 100L);
+        new SpiritParticleTask(this).runTaskTimer(this, ConfigManager.get().getParticleTaskInterval(), ConfigManager.get().getParticleTaskInterval());
         this.manager = new SpiritManager(this);
 
         // 注册监听器
@@ -47,16 +54,20 @@ public class EarthSpiritPlugin extends JavaPlugin {
         this.task.runTaskTimer(this, 0L, 1L);
 
         // 启动自动保存任务 (每5分钟保存一次数据)
+        long autoSave = ConfigManager.get().getAutoSaveInterval();
         Bukkit.getScheduler().runTaskTimerAsynchronously(this, () -> {
             if (manager != null) {
                 manager.saveData();
             }
-        }, 6000L, 6000L); // 6000 ticks = 5 minutes
+        }, autoSave, autoSave);
 
         // 注册合成配方：风铃杖与灵契风铃
         registerRecipes();
 
-        getLogger().info("EarthSpirit 地灵插件已启动！");
+        // 注册 NexusCore 集成
+        NexusIntegration.register();
+
+        I18n.get().send(Bukkit.getConsoleSender(), "messages.startup");
     }
 
     private void registerRecipes() {
@@ -90,7 +101,9 @@ public class EarthSpiritPlugin extends JavaPlugin {
             manager.cleanupSpirits(); // 清理实体
             manager.saveData();
         }
-        getLogger().info("EarthSpirit 地灵插件已关闭！");
+        if (I18n.get() != null) {
+            I18n.get().send(Bukkit.getConsoleSender(), "messages.shutdown");
+        }
     }
 
     public SpiritManager getManager() {
@@ -104,9 +117,21 @@ public class EarthSpiritPlugin extends JavaPlugin {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (command.getName().equalsIgnoreCase("esp") || command.getName().equalsIgnoreCase("earthspirit")) {
-            if (args.length > 0 && args[0].equalsIgnoreCase("partner")) {
+            if (args.length > 0) {
+                if (args[0].equalsIgnoreCase("reload")) {
+                    if (!sender.hasPermission("earthspirit.admin")) {
+                        I18n.get().send(sender, "commands.no-permission");
+                        return true;
+                    }
+                    ConfigManager.get().reload();
+                    I18n.get().reload();
+                    I18n.get().send(sender, "messages.reload");
+                    return true;
+                }
+                
+                if (args[0].equalsIgnoreCase("partner")) {
                 if (!(sender instanceof Player)) {
-                    sender.sendMessage("§c只有玩家可以使用此命令！");
+                    I18n.get().send(sender, "commands.only-player");
                     return true;
                 }
                 Player p = (Player) sender;
@@ -114,7 +139,7 @@ public class EarthSpiritPlugin extends JavaPlugin {
                     if (args[1].equalsIgnoreCase("accept")) {
                         UUID requesterId = manager.getPartnerRequest(p.getUniqueId());
                         if (requesterId == null) {
-                            p.sendMessage("§c你目前没有收到的伴侣请求。");
+                            I18n.get().send(p, "commands.partner.no-request");
                             return true;
                         }
 
@@ -122,11 +147,11 @@ public class EarthSpiritPlugin extends JavaPlugin {
                         SpiritEntity targetSpirit = manager.getSpiritByOwner(requesterId);
 
                         if (mySpirit == null) {
-                            p.sendMessage("§c你还没有地灵，无法建立羁绊！");
+                            I18n.get().send(p, "commands.partner.no-spirit-self");
                             return true;
                         }
                         if (targetSpirit == null) {
-                            p.sendMessage("§c对方似乎没有地灵，无法建立羁绊！");
+                            I18n.get().send(p, "commands.partner.no-spirit-target");
                             manager.removePartnerRequest(p.getUniqueId());
                             return true;
                         }
@@ -138,34 +163,35 @@ public class EarthSpiritPlugin extends JavaPlugin {
                         manager.removePartnerRequest(p.getUniqueId());
 
                         String targetName = Bukkit.getOfflinePlayer(requesterId).getName();
-                        p.sendMessage("§d§l❤ §f你接受了 §e" + targetName + " §f的伴侣请求！二人正式结为灵魂伴侣！");
+                        I18n.get().send(p, "commands.partner.accept.self", Placeholder.parsed("name", targetName));
                         p.playSound(p.getLocation(), org.bukkit.Sound.UI_TOAST_CHALLENGE_COMPLETE, 1, 1);
 
                         Player target = Bukkit.getPlayer(requesterId);
                         if (target != null && target.isOnline()) {
-                            target.sendMessage("§d§l❤ §e" + p.getName() + " §f接受了你的伴侣请求！二人正式结为灵魂伴侣！");
+                            I18n.get().send(target, "commands.partner.accept.target", Placeholder.parsed("name", p.getName()));
                             target.playSound(target.getLocation(), org.bukkit.Sound.UI_TOAST_CHALLENGE_COMPLETE, 1, 1);
                         }
                         return true;
                     } else if (args[1].equalsIgnoreCase("deny")) {
                         UUID requesterId = manager.getPartnerRequest(p.getUniqueId());
                         if (requesterId == null) {
-                            p.sendMessage("§c你目前没有收到的伴侣请求。");
+                            I18n.get().send(p, "commands.partner.no-request");
                             return true;
                         }
                         
                         manager.removePartnerRequest(p.getUniqueId());
-                        p.sendMessage("§c你拒绝了伴侣请求。");
+                        I18n.get().send(p, "commands.partner.deny.self");
                         
                         Player target = Bukkit.getPlayer(requesterId);
                         if (target != null && target.isOnline()) {
-                            target.sendMessage("§c" + p.getName() + " 拒绝了你的伴侣请求。");
+                            I18n.get().send(target, "commands.partner.deny.target", Placeholder.parsed("name", p.getName()));
                         }
                         return true;
                     }
                 }
-                p.sendMessage("§c用法: /esp partner <accept|deny>");
+                I18n.get().send(sender, "commands.partner.usage");
                 return true;
+            }
             }
         }
 
@@ -173,45 +199,45 @@ public class EarthSpiritPlugin extends JavaPlugin {
             if (sender instanceof Player) {
                 Player p = (Player) sender;
                 if (!p.hasPermission("earthspirit.admin")) {
-                    p.sendMessage("§c你没有权限！");
+                    I18n.get().send(p, "commands.no-permission");
                     return true;
                 }
                 p.getInventory().addItem(getSpiritBell());
-                p.sendMessage("§a获得了灵契风铃！");
+                I18n.get().send(p, "commands.admin.get-bell");
                 return true;
             }
         } else if (command.getName().equalsIgnoreCase("getwand")) {
             if (sender instanceof Player) {
                 Player p = (Player) sender;
                 if (!p.hasPermission("earthspirit.admin")) {
-                    p.sendMessage("§c你没有权限！");
+                    I18n.get().send(p, "commands.no-permission");
                     return true;
                 }
                 p.getInventory().addItem(getTamingWand());
-                p.sendMessage("§a获得了风铃杖！");
+                I18n.get().send(p, "commands.admin.get-wand");
                 return true;
             }
         }
         return false;
     }
 
-    public ItemStack getTamingWand() {
-        ItemStack wand = new ItemStack(Material.BLAZE_ROD);
-        ItemMeta meta = wand.getItemMeta();
-        meta.setDisplayName("§6§l风铃杖");
-        meta.setLore(Collections.singletonList("§7右键方块指挥地灵移动"));
-        meta.setCustomModelData(10002);
-        wand.setItemMeta(meta);
-        return wand;
+    public ItemStack getSpiritBell() {
+        ItemStack item = new ItemStack(Material.BELL);
+        ItemMeta meta = item.getItemMeta();
+        meta.setCustomModelData(10001);
+        meta.setDisplayName(I18n.get().getLegacy("items.spirit-bell.name"));
+        meta.setLore(I18n.get().getLegacyList("items.spirit-bell.lore"));
+        item.setItemMeta(meta);
+        return item;
     }
 
-    public ItemStack getSpiritBell() {
-        ItemStack bell = new ItemStack(Material.BELL);
-        ItemMeta meta = bell.getItemMeta();
-        meta.setDisplayName("§b§l灵契风铃");
-        meta.setLore(Collections.singletonList("§7右键召唤地灵"));
+    public ItemStack getTamingWand() {
+        ItemStack item = new ItemStack(Material.CARROT_ON_A_STICK);
+        ItemMeta meta = item.getItemMeta();
         meta.setCustomModelData(10001);
-        bell.setItemMeta(meta);
-        return bell;
+        meta.setDisplayName(I18n.get().getLegacy("items.taming-wand.name"));
+        meta.setLore(I18n.get().getLegacyList("items.taming-wand.lore"));
+        item.setItemMeta(meta);
+        return item;
     }
 }

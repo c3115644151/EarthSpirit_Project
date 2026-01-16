@@ -48,6 +48,9 @@ import org.bukkit.event.block.BlockBreakEvent;
 import java.lang.reflect.Method;
 import java.util.concurrent.ThreadLocalRandom;
 
+import com.example.earthspirit.configuration.I18n;
+import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
+
 import org.bukkit.event.player.PlayerJoinEvent;
 // import org.bukkit.event.player.PlayerQuitEvent;
 
@@ -70,8 +73,8 @@ public class SpiritListener implements Listener {
         UUID requesterId = plugin.getManager().getPartnerRequest(event.getPlayer().getUniqueId());
         if (requesterId != null) {
             String requesterName = Bukkit.getOfflinePlayer(requesterId).getName();
-            event.getPlayer().sendMessage("§d§l[地灵羁绊] §f收到来自 §e" + requesterName + " §f的伴侣请求！");
-            event.getPlayer().sendMessage("§f输入 §a/esp partner accept §f接受，或 §c/esp partner deny §f拒绝。");
+            I18n.get().send(event.getPlayer(), "messages.join.partner-request", Placeholder.parsed("name", requesterName));
+            I18n.get().send(event.getPlayer(), "messages.join.partner-hint");
         }
     }
 
@@ -97,7 +100,7 @@ public class SpiritListener implements Listener {
         
         // 通用取消
         if (msg.equalsIgnoreCase("cancel") || msg.equals("取消")) {
-            p.sendMessage("§e已取消操作。");
+            I18n.get().send(p, "messages.input.cancel");
             pendingInputData.remove(p.getUniqueId());
             return;
         }
@@ -132,13 +135,13 @@ public class SpiritListener implements Listener {
              if (msg.equalsIgnoreCase("confirm")) {
                  handleDeleteConfirm(p, spirit);
              } else {
-                 p.sendMessage("§e操作已取消。");
+                 I18n.get().send(p, "messages.input.canceled");
              }
         } else if (type.equals("RELEASE_CONFIRM")) {
              if (msg.equalsIgnoreCase("release")) {
                  handleReleaseConfirm(p, spirit);
              } else {
-                 p.sendMessage("§e操作已取消。");
+                 I18n.get().send(p, "messages.input.canceled");
              }
         }
     }
@@ -150,10 +153,10 @@ public class SpiritListener implements Listener {
                 String finalName = "§a" + newName.replace("&", "§");
                 spirit.setName(finalName);
                 plugin.getManager().saveData();
-                p.sendMessage("§a地灵的名字已更新为: " + finalName);
+                I18n.get().send(p, "messages.input.rename.success", Placeholder.parsed("name", finalName));
                 p.playSound(p.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1, 1);
             } else {
-                p.sendMessage("§c找不到地灵，改名失败。");
+                I18n.get().send(p, "messages.input.rename.fail");
             }
         });
     }
@@ -165,10 +168,10 @@ public class SpiritListener implements Listener {
                 TownyIntegration.renameTown(p, newName);
                 spirit.setTownName(newName); // Update local cache
                 plugin.getManager().saveData();
-                p.sendMessage("§a居所名称已更新为: " + newName);
+                I18n.get().send(p, "messages.input.town-rename.success", Placeholder.parsed("name", newName));
                 p.playSound(p.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1, 1);
             } else {
-                p.sendMessage("§c无法获取居所数据！");
+                I18n.get().send(p, "messages.town-error");
             }
         });
     }
@@ -178,10 +181,10 @@ public class SpiritListener implements Listener {
             com.palmergames.bukkit.towny.object.Town town = TownyIntegration.getTown(p);
             if (town != null) {
                 TownyIntegration.setTownBoard(town, newBoard);
-                p.sendMessage("§a居所公告已更新！");
+                I18n.get().send(p, "messages.input.town-board.success");
                 p.playSound(p.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 1, 1);
             } else {
-                p.sendMessage("§c无法获取居所数据！");
+                I18n.get().send(p, "messages.town-error");
             }
         });
     }
@@ -189,12 +192,12 @@ public class SpiritListener implements Listener {
     private void handleDeleteConfirm(Player p, SpiritEntity spirit) {
         Bukkit.getScheduler().runTask(plugin, () -> {
             if (TownyIntegration.deleteTown(p)) {
-                p.sendMessage("§c居所已废弃！地灵变为了流浪状态。");
+                I18n.get().send(p, "messages.input.delete.success");
                 p.playSound(p.getLocation(), Sound.ENTITY_WITHER_DEATH, 1f, 0.5f);
                 spirit.setTownName(null);
                 plugin.getManager().saveData();
             } else {
-                p.sendMessage("§c废弃失败！可能你不是居所主人。");
+                I18n.get().send(p, "messages.input.delete.fail");
             }
         });
     }
@@ -203,7 +206,7 @@ public class SpiritListener implements Listener {
          Bukkit.getScheduler().runTask(plugin, () -> {
              plugin.getManager().removeSpirit(spirit.getEntityId());
              spirit.remove(); // Despawn entity
-             p.sendMessage("§c你解除了与地灵的契约。");
+             I18n.get().send(p, "messages.input.release.success");
              p.playSound(p.getLocation(), Sound.ENTITY_ITEM_BREAK, 1f, 0.5f);
          });
     }
@@ -238,9 +241,13 @@ public class SpiritListener implements Listener {
         if (toTown != null && !toTown.equals(fromTown)) {
             // 玩家进入了新的城镇
             String board = toTown.getBoard();
-            if (board == null || board.isEmpty()) board = "欢迎来到 " + toTown.getName();
+            if (board == null || board.isEmpty()) board = I18n.get().getLegacy("messages.move.welcome", Placeholder.parsed("town", toTown.getName()));
             
-            p.sendTitle("§a" + toTown.getName(), "§e" + board, 10, 70, 20);
+            p.sendTitle(
+                I18n.get().getLegacy("messages.move.title", Placeholder.parsed("town", toTown.getName())), 
+                I18n.get().getLegacy("messages.move.subtitle", Placeholder.parsed("board", board)), 
+                10, 70, 20
+            );
         }
     }
 
@@ -275,29 +282,29 @@ public class SpiritListener implements Listener {
                 if (spirit.getEntityId() != null && Bukkit.getEntity(spirit.getEntityId()) != null) {
                     // 已召唤 -> 收回
                     spirit.recall();
-                    p.sendMessage("§e你收回了地灵。");
+                    I18n.get().send(p, "messages.summon.recall");
                     p.playSound(p.getLocation(), Sound.ENTITY_ILLUSIONER_MIRROR_MOVE, 1f, 1f);
                 } else {
                     // 未召唤 -> 召唤
                     spirit.summon(p.getLocation());
-                    p.sendMessage("§a地灵响应了你的召唤！");
+                    I18n.get().send(p, "messages.summon.success");
                 }
             } else {
                 // 新建地灵
                 if (plugin.getManager().hasSpiritNearby(p.getLocation(), 2)) {
-                    p.sendMessage("§c这里太挤了！");
+                    I18n.get().send(p, "messages.summon.crowded");
                     return;
                 }
 
-                String defaultName = p.getName() + "的地灵";
+                String defaultName = p.getName() + I18n.get().getLegacy("messages.summon.default-name-suffix");
                 // 构造函数会直接生成实体，所以这里就是“召唤”
                 // 注意：这里 townName 默认为 null (流浪状态)
                 SpiritEntity newSpirit = new SpiritEntity(p.getUniqueId(), defaultName, p.getLocation());
                 
                 plugin.getManager().addSpirit(newSpirit);
 
-                p.sendMessage("§a成功召唤了地灵！快给它起个名字吧！");
-                p.sendMessage("§e请在聊天栏输入地灵的名字：");
+                I18n.get().send(p, "messages.summon.first-summon");
+                I18n.get().send(p, "messages.summon.name-prompt");
                 pendingInputType.put(p.getUniqueId(), "NAME");
                 pendingInputData.put(p.getUniqueId(), newSpirit.getEntityId());
                 p.playSound(p.getLocation(), Sound.BLOCK_BEACON_ACTIVATE, 1, 1);
@@ -333,12 +340,12 @@ public class SpiritListener implements Listener {
         SpiritEntity spirit = plugin.getManager().getSpiritByOwner(p.getUniqueId());
         
         if (spirit == null || spirit.getEntityId() == null) {
-            p.sendMessage("§c你还没有召唤地灵！");
+            I18n.get().send(p, "messages.wand.no-spirit");
             return;
         }
         
         if (spirit.getMode() != SpiritEntity.SpiritMode.COMPANION) {
-            p.sendMessage("§c风铃杖仅在旅伴形态下可用！");
+            I18n.get().send(p, "messages.wand.wrong-mode");
             return;
         }
 
@@ -349,7 +356,7 @@ public class SpiritListener implements Listener {
                 // 移动到方块上方
                 Location target = b.getLocation().add(0.5, 1, 0.5);
                 spirit.moveTo(target);
-                p.sendMessage("§a地灵正在前往目标地点...");
+                I18n.get().send(p, "messages.wand.moving");
                 p.spawnParticle(Particle.HEART, target, 5, 0.2, 0.2, 0.2, 0);
             }
         } 
@@ -357,7 +364,7 @@ public class SpiritListener implements Listener {
         else if (event.getAction().name().contains("LEFT") || event.getAction().name().contains("RIGHT_CLICK_AIR")) {
              // 召回（取消手动移动）
              spirit.cancelMove();
-             p.sendMessage("§e地灵已停止前往目标，重新跟随你。");
+             I18n.get().send(p, "messages.wand.stop");
              p.playSound(p.getLocation(), Sound.ENTITY_WOLF_WHINE, 1f, 1f);
         }
     }
@@ -381,8 +388,10 @@ public class SpiritListener implements Listener {
         // Shift + 右键：切换模式 (仅限主人)
         if (p.isSneaking() && isOwner) {
             spiritData.toggleMode();
-            String modeStr = (spiritData.getMode() == SpiritEntity.SpiritMode.COMPANION) ? "旅伴" : "守护灵";
-            p.sendMessage("§e地灵已切换为" + modeStr + "形态。");
+            String modeStr = (spiritData.getMode() == SpiritEntity.SpiritMode.COMPANION) ? 
+                I18n.get().getLegacy("messages.interact.mode-companion") : 
+                I18n.get().getLegacy("messages.interact.mode-guardian");
+            I18n.get().send(p, "messages.interact.mode-switch", Placeholder.parsed("mode", modeStr));
             return;
         }
 
@@ -445,7 +454,7 @@ public class SpiritListener implements Listener {
         
         if (targetSpirit == null) {
              p.closeInventory();
-             p.sendMessage("§c交互会话已过期，请重新右键地灵。");
+             I18n.get().send(p, "messages.interact.session-expired");
              return;
         }
 

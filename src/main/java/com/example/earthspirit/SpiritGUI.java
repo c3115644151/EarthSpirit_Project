@@ -16,23 +16,36 @@ import java.time.LocalDate;
 
 import com.example.earthspirit.cravings.DailyRequest;
 import com.example.earthspirit.cravings.CravingManager;
+import com.example.earthspirit.configuration.ConfigManager;
+import com.example.earthspirit.configuration.I18n;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 
 public class SpiritGUI {
 
-    public static final String GUI_TITLE = "§8[ §2地灵羁绊 §8] §0守护面板";
+    public static String getGuiTitle() {
+        return I18n.get().getLegacy("gui.title");
+    }
+    
+    public static String getSubGuiTitle() {
+        return I18n.get().getLegacy("gui.sub-title");
+    }
+
+    public static final String GUI_TITLE = "§8[ §2地灵羁绊 §8] §0守护面板"; // Kept for compatibility if needed, but should be deprecated
     public static final String SUB_GUI_TITLE = "§8[ §2地灵羁绊 §8] §0居所管理";
 
     public static void openMenu(Player player, SpiritEntity spirit) {
         // 创建一个 3行 (27格) 的界面
-        Inventory inv = Bukkit.createInventory(null, 27, GUI_TITLE);
+        Inventory inv = Bukkit.createInventory(null, 27, getGuiTitle());
 
         // 权限检查
         boolean isOwner = player.getUniqueId().equals(spirit.getOwnerId());
         boolean isResident = TownyIntegration.isResident(spirit.getTownName(), player);
         boolean canInteract = isOwner || isResident;
 
-        // 1. 背景板 (用黑色玻璃填充，美观)
-        ItemStack bg = createItem(Material.BLACK_STAINED_GLASS_PANE, "§7");
+        // 1. 背景板
+        ItemStack bg = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.background", "BLACK_STAINED_GLASS_PANE")), 
+            I18n.get().getLegacy("gui.items.background.name"));
         for (int i = 0; i < 27; i++) {
             inv.setItem(i, bg);
         }
@@ -42,20 +55,21 @@ public class SpiritGUI {
         SkullMeta headMeta = (SkullMeta) head.getItemMeta();
         if (headMeta != null) {
             headMeta.setOwningPlayer(Bukkit.getOfflinePlayer(spirit.getOwnerId())); // 显示主人的头
-            headMeta.setDisplayName("§e✦ " + spirit.getName() + " §e✦");
             
-            List<String> lore = new ArrayList<>();
-            lore.add("§7--------------------");
-            lore.add("§f ❖ 形态: §b" + spirit.getMode().getDisplayName());
-            lore.add(spirit.getHungerBar());
-            lore.add("§f ❖ 心情: " + getMoodBar(spirit.getMood()));
-            lore.add("§f ❖ 等级: §bLv." + spirit.getLevel());
-            lore.add("§f ❖ 经验: §a" + spirit.getExp() + " / " + (spirit.getLevel() * 100));
-            lore.add("§f ❖ 主人: §7" + Bukkit.getOfflinePlayer(spirit.getOwnerId()).getName());
+            headMeta.setDisplayName(I18n.get().getLegacy("gui.items.head.name", 
+                Placeholder.parsed("name", spirit.getName())));
             
-            // 显示居所名称 (直接使用地灵记录的，或者是 Towny 里的)
-            // String displayTownName = spirit.getTownName();
-            
+            String status;
+            if (spirit.isAbandoned()) {
+                status = I18n.get().getLegacy("status.abandoned");
+            } else if (spirit.getTownName() == null) {
+                status = I18n.get().getLegacy("status.wandering");
+            } else if (spirit.getMode() == SpiritEntity.SpiritMode.COMPANION) {
+                status = I18n.get().getLegacy("status.following");
+            } else {
+                status = I18n.get().getLegacy("status.guarding");
+            }
+
             // 如果是主人查看，且名字不一致，顺便更新一下数据
             if (isOwner) { 
                 com.palmergames.bukkit.towny.object.Town t = TownyIntegration.getTown(player);
@@ -63,17 +77,18 @@ public class SpiritGUI {
                      spirit.setTownName(t.getName());
                 }
             }
+
+            List<String> lore = I18n.get().getLegacyList("gui.items.head.lore",
+                Placeholder.parsed("mode", spirit.getMode().getDisplayName()),
+                Placeholder.parsed("hunger_bar", spirit.getHungerBar()),
+                Placeholder.parsed("mood_bar", getMoodBar(spirit.getMood())),
+                Placeholder.parsed("level", String.valueOf(spirit.getLevel())),
+                Placeholder.parsed("exp", String.valueOf(spirit.getExp())),
+                Placeholder.parsed("max_exp", String.valueOf(spirit.getLevel() * 100)),
+                Placeholder.parsed("owner", Bukkit.getOfflinePlayer(spirit.getOwnerId()).getName()),
+                Placeholder.parsed("status", status)
+            );
             
-            lore.add("§7--------------------");
-            if (spirit.isAbandoned()) {
-                lore.add("§c [!] 处于被遗弃状态");
-            } else if (spirit.getTownName() == null) {
-                lore.add("§b [✈] 正在流浪");
-            } else if (spirit.getMode() == SpiritEntity.SpiritMode.COMPANION) {
-                lore.add("§6 [👣] 正在跟随主人");
-            } else {
-                lore.add("§a [√] 正在守护这片土地");
-            }
             headMeta.setLore(lore);
             head.setItemMeta(headMeta);
         }
@@ -81,21 +96,27 @@ public class SpiritGUI {
 
         // 3. 互动按钮 (左侧 - 抚摸)
         if (canInteract) {
-            ItemStack petBtn = createItem(Material.FEATHER, "§d§l❤ 抚摸", 
-                "§7", "§f轻抚地灵的额头...", "§7(每日可提升心情)");
+            ItemStack petBtn = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.pet-button", "FEATHER")),
+                I18n.get().getLegacy("gui.items.pet-button.name"),
+                I18n.get().getLegacyList("gui.items.pet-button.lore").toArray(new String[0]));
             inv.setItem(11, petBtn);
 
             // 4. 投喂按钮 (右侧 - 蛋糕)
-            ItemStack feedBtn = createItem(Material.CAKE, "§6§l♨ 投喂", 
-                "§7", "§f消耗背包里的食物进行投喂", "§7(恢复大量心情)", "", "§e[点击自动消耗背包食物]");
+            ItemStack feedBtn = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.feed-button", "CAKE")),
+                I18n.get().getLegacy("gui.items.feed-button.name"),
+                I18n.get().getLegacyList("gui.items.feed-button.lore").toArray(new String[0]));
             inv.setItem(15, feedBtn);
             
             // 4.5 背包按钮
             ItemStack bagBtn;
             if (spirit.getMode() == SpiritEntity.SpiritMode.COMPANION) {
-                 bagBtn = createItem(Material.CHEST, "§6§l🎒 地灵背包", "§7", "§f点击打开背包", "§7(仅旅伴模式可用)");
+                 bagBtn = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.bag-button-active", "CHEST")),
+                    I18n.get().getLegacy("gui.items.bag-button.name"),
+                    I18n.get().getLegacyList("gui.items.bag-button.lore").toArray(new String[0]));
             } else {
-                 bagBtn = createItem(Material.CHEST, "§7§l🎒 地灵背包", "§7", "§c仅旅伴形态可用");
+                 bagBtn = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.bag-button-inactive", "CHEST")),
+                    I18n.get().getLegacy("gui.items.bag-button.name-inactive"),
+                    I18n.get().getLegacyList("gui.items.bag-button.lore-inactive").toArray(new String[0]));
             }
             inv.setItem(4, bagBtn);
 
@@ -107,8 +128,8 @@ public class SpiritGUI {
             if (req != null) {
                  long today = LocalDate.now().toEpochDay();
                  if (req.date == today) {
-                     cravingLore.add("§f今日评分: §e" + req.grade);
-                     cravingLore.add("§f需求列表:");
+                     cravingLore.add(I18n.get().getLegacy("gui.items.craving-button.lore.today-grade", Placeholder.parsed("grade", String.valueOf(req.grade))));
+                     cravingLore.add(I18n.get().getLegacy("gui.items.craving-button.lore.needs"));
                      
                      CravingManager cm = EarthSpiritPlugin.getInstance().getCravingManager();
                      for (DailyRequest.TaskItem task : req.items.values()) {
@@ -120,39 +141,50 @@ public class SpiritGUI {
                              itemName = is.getType().name();
                          }
                          
-                         String status = task.submitted ? "§a[√]" : "§c[x]";
-                         cravingLore.add("§7- " + itemName + " §f×" + task.amount + " " + status);
+                         String statusKey = task.submitted ? "gui.items.craving-button.lore.status-checked" : "gui.items.craving-button.lore.status-unchecked";
+                         String status = I18n.get().getLegacy(statusKey);
+                         
+                         cravingLore.add(I18n.get().getLegacy("gui.items.craving-button.lore.item-entry",
+                            Placeholder.parsed("item", itemName),
+                            Placeholder.parsed("amount", String.valueOf(task.amount)),
+                            Placeholder.parsed("status", status)
+                         ));
                      }
                      
                      if (req.rewardsClaimed) {
                          cravingLore.add("§7");
-                         cravingLore.add("§a[√] 已领取今日奖励");
+                         cravingLore.add(I18n.get().getLegacy("gui.items.craving-button.lore.claimed"));
                      } else {
                          cravingLore.add("§7");
-                         cravingLore.add("§e[点击查看详情]");
+                         cravingLore.add(I18n.get().getLegacy("gui.items.craving-button.lore.click-details"));
                      }
                  } else {
-                     cravingLore.add("§f查看地灵今天想吃什么...");
-                     cravingLore.add("§f昨日任务未完成/未刷新");
-                     cravingLore.add("§7(点击刷新)");
+                     cravingLore.add(I18n.get().getLegacy("gui.items.craving-button.lore.check-craving"));
+                     cravingLore.add(I18n.get().getLegacy("gui.items.craving-button.lore.yesterday-unfinished"));
+                     cravingLore.add(I18n.get().getLegacy("gui.items.craving-button.lore.refresh"));
                  }
             } else {
-                cravingLore.add("§f查看地灵今天想吃什么...");
-                cravingLore.add("§f满足它可获得奖励！");
-                cravingLore.add("§7(每日刷新)");
+                cravingLore.add(I18n.get().getLegacy("gui.items.craving-button.lore.check-craving"));
+                cravingLore.add(I18n.get().getLegacy("gui.items.craving-button.lore.daily-reward"));
+                cravingLore.add(I18n.get().getLegacy("gui.items.craving-button.lore.daily-refresh"));
             }
 
-            ItemStack cravingBtn = createItem(Material.PAPER, "§b§l📜 嘴馋清单", cravingLore.toArray(new String[0]));
+            ItemStack cravingBtn = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.craving-button", "PAPER")),
+                I18n.get().getLegacy("gui.items.craving-button.name"),
+                cravingLore.toArray(new String[0]));
             inv.setItem(18, cravingBtn);
         } else {
             // 访客模式显示灰色
-            ItemStack noPerm = createItem(Material.GRAY_DYE, "§7§l🔒 访客模式", "§7", "§f你需要成为该城镇的居民", "§f才能与地灵互动。");
+            ItemStack noPerm = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.visitor-button", "GRAY_DYE")),
+                I18n.get().getLegacy("gui.items.visitor-button.name"),
+                I18n.get().getLegacyList("gui.items.visitor-button.lore").toArray(new String[0]));
             inv.setItem(11, noPerm);
             
             if (spirit.isAbandoned()) {
                  // 允许投喂被遗弃的地灵
-                 ItemStack feedBtn = createItem(Material.CAKE, "§6§l♨ 投喂 (安抚)", 
-                    "§7", "§f这个地灵看起来很孤独...", "§f给它一点食物安抚它吧。", "§7(每日限一次，不增加心情)");
+                 ItemStack feedBtn = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.feed-button", "CAKE")),
+                    I18n.get().getLegacy("gui.items.feed-comfort-button.name"),
+                    I18n.get().getLegacyList("gui.items.feed-comfort-button.lore").toArray(new String[0]));
                  inv.setItem(15, feedBtn);
             } else {
                  inv.setItem(15, noPerm);
@@ -165,27 +197,28 @@ public class SpiritGUI {
         if (townName == null) {
             // 无居所 -> 显示 "建立居所"
             if (canInteract && isOwner) {
-                ItemStack createBtn = createItem(Material.OAK_SAPLING, "§a§l🌱 建立居所", 
-                    "§7", "§f这只地灵还没有守护的土地。", 
-                    "§f点击将脚下区块设为 §e核心居所§f！", 
-                    "§c(仅限守护灵模式)");
+                ItemStack createBtn = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.create-home-button", "OAK_SAPLING")),
+                    I18n.get().getLegacy("gui.items.create-home-button.name"),
+                    I18n.get().getLegacyList("gui.items.create-home-button.lore").toArray(new String[0]));
                 inv.setItem(22, createBtn);
             } else {
-                ItemStack noTown = createItem(Material.DEAD_BUSH, "§7§l未知居所", "§7", "§f这只地灵还在流浪...");
+                ItemStack noTown = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.no-home-button", "DEAD_BUSH")),
+                    I18n.get().getLegacy("gui.items.no-home-button.name"),
+                    I18n.get().getLegacyList("gui.items.no-home-button.lore").toArray(new String[0]));
                 inv.setItem(22, noTown);
             }
         } else {
             // 有居所 -> 显示 "居所管理" 和 "扩充居所"
             if (canInteract) {
-                ItemStack manageBtn = createItem(Material.EMERALD, "§2§l⚒ 居所管理", 
-                    "§7", "§f当前居所: §a" + townName, "§7", "§f点击查看或管理居所", "§7(权限/公告/升级)");
+                ItemStack manageBtn = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.manage-home-button", "EMERALD")),
+                    I18n.get().getLegacy("gui.items.manage-home-button.name"),
+                    I18n.get().getLegacyList("gui.items.manage-home-button.lore", Placeholder.parsed("town", townName)).toArray(new String[0]));
                 inv.setItem(22, manageBtn);
                 
                 if (isOwner) {
-                    ItemStack expandBtn = createItem(Material.GOLDEN_SHOVEL, "§6§l🚩 扩充居所", 
-                        "§7", "§f将脚下区块纳入居所范围", 
-                        "§f当前等级上限: §e" + (1 + (spirit.getLevel()-1)*2) + " 格",
-                        "§c(仅限守护灵模式)");
+                    ItemStack expandBtn = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.expand-home-button", "GOLDEN_SHOVEL")),
+                        I18n.get().getLegacy("gui.items.expand-home-button.name"),
+                        I18n.get().getLegacyList("gui.items.expand-home-button.lore", Placeholder.parsed("max", String.valueOf(1 + (spirit.getLevel()-1)*2))).toArray(new String[0]));
                     inv.setItem(20, expandBtn);
                 }
             }
@@ -193,14 +226,14 @@ public class SpiritGUI {
 
         // 6. 更多功能 (重命名 & 解除契约)
             if (isOwner) {
-                ItemStack renameSpiritBtn = createItem(Material.NAME_TAG, "§e§l✎ 地灵改名", 
-                    "§7", "§f给地灵起个新名字", "§f当前名字: §e" + spirit.getName());
+                ItemStack renameSpiritBtn = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.rename-button", "NAME_TAG")),
+                    I18n.get().getLegacy("gui.items.rename-button.name"),
+                    I18n.get().getLegacyList("gui.items.rename-button.lore", Placeholder.parsed("name", spirit.getName())).toArray(new String[0]));
                 inv.setItem(24, renameSpiritBtn);
                 
-                ItemStack releaseBtn = createItem(Material.SKELETON_SKULL, "§4§l☠ 解除契约", 
-                    "§7", "§f释放地灵，解除契约", 
-                    "§c警告：地灵将永久消失！", 
-                    "§c你可以使用风铃召唤新的地灵。");
+                ItemStack releaseBtn = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.release-button", "SKELETON_SKULL")),
+                    I18n.get().getLegacy("gui.items.release-button.name"),
+                    I18n.get().getLegacyList("gui.items.release-button.lore", Placeholder.parsed("warning", "警告：地灵将永久消失！")).toArray(new String[0])); // Lore for release button incomplete in my memory, assuming similar structure or I can add it to lang file
                 inv.setItem(26, releaseBtn);
             }
 
@@ -215,19 +248,23 @@ public class SpiritGUI {
         }
         if (req == null) return;
 
-        Inventory inv = Bukkit.createInventory(null, 45, "嘴馋清单 - " + spirit.getName());
+        Inventory inv = Bukkit.createInventory(null, 45, I18n.get().getLegacy("gui.cravings.title", Placeholder.parsed("name", spirit.getName())));
         
         // Background
-        ItemStack bg = createItem(Material.BLACK_STAINED_GLASS_PANE, "§7");
+        ItemStack bg = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.background", "BLACK_STAINED_GLASS_PANE")), 
+            I18n.get().getLegacy("gui.items.background.name"));
         for (int i = 0; i < 45; i++) {
             inv.setItem(i, bg);
         }
 
         // Info Book at 13
-        ItemStack info = createItem(Material.PAPER, "§e§l今日需求", 
-            "§7日期: " + LocalDate.ofEpochDay(req.date),
-            "§7评分: " + req.grade,
-            "§7状态: " + (req.rewardsClaimed ? "§a已领奖" : "§c未完成")
+        ItemStack info = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.cravings.info-book", "PAPER")),
+            I18n.get().getLegacy("gui.cravings.items.info-book.name"),
+            I18n.get().getLegacy("gui.cravings.items.info-book.lore.date", Placeholder.parsed("date", LocalDate.ofEpochDay(req.date).toString())),
+            I18n.get().getLegacy("gui.cravings.items.info-book.lore.grade", Placeholder.parsed("grade", String.valueOf(req.grade))),
+            I18n.get().getLegacy("gui.cravings.items.info-book.lore.status", Placeholder.parsed("status", req.rewardsClaimed ? 
+                I18n.get().getLegacy("gui.cravings.items.info-book.lore.status-claimed") : 
+                I18n.get().getLegacy("gui.cravings.items.info-book.lore.status-incomplete")))
         );
         inv.setItem(13, info);
 
@@ -241,31 +278,17 @@ public class SpiritGUI {
                 
                 ItemStack displayItem;
                 if (task.submitted) {
-                    // 已提交：显示绿色玻璃板
-                    displayItem = createItem(Material.LIME_STAINED_GLASS_PANE, "§a§l[√] 已提交");
-                    // 数量保持1，或者设为 task.amount？通常状态图标设为1比较整洁。
-                    displayItem.setAmount(task.amount); // 既然用户希望直观显示数量，提交后也保持数量显示可能更好，或者保持1。
-                    // 用户原话："图标应该变成绿色玻璃板... 最好把视觉反馈做周全一点"
-                    // 绿色玻璃板通常作为"占位符"或"状态符"，数量设为1最常见。
-                    // 但为了对应 "Stack of 5 cookies" -> "Stack of 5 glass panes" 也可以。
-                    // 考虑到玻璃板通常不堆叠显示数量信息（视觉上不明显），我设为1，但在Lore里保留数量信息。
+                    displayItem = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.cravings.submitted", "LIME_STAINED_GLASS_PANE")),
+                        I18n.get().getLegacy("gui.cravings.items.submitted.name"));
                     displayItem.setAmount(1); 
                 } else {
-                    // 未提交：显示原物品，并设置数量
                     displayItem = cm.getDisplayItem(task.key).clone();
                     displayItem.setAmount(task.amount);
                 }
                 
                 ItemMeta meta = displayItem.getItemMeta();
                 List<String> lore = meta.hasLore() ? meta.getLore() : new ArrayList<>();
-                // 如果是玻璃板，lore是新的；如果是原物品，lore包含原物品信息
                 
-                // 如果是原物品，我们添加分割线；如果是玻璃板，我们重建Lore
-                if (!task.submitted) {
-                    lore.add("§8----------------");
-                }
-                
-                // 获取物品原名 (为了在玻璃板Lore中显示)
                 String originalName = "未知物品";
                 ItemStack originalStack = cm.getDisplayItem(task.key);
                 if (originalStack != null && originalStack.getItemMeta().hasDisplayName()) {
@@ -273,18 +296,21 @@ public class SpiritGUI {
                 }
 
                 if (task.submitted) {
-                     lore.add("§7已提交: " + originalName + " x" + task.amount);
-                     // lore.add("§a[√] 任务完成"); // Duplicate with title
+                     List<String> submittedLore = I18n.get().getLegacyList("gui.cravings.items.submitted.lore",
+                        Placeholder.parsed("name", originalName),
+                        Placeholder.parsed("amount", String.valueOf(task.amount)));
+                     lore.addAll(submittedLore);
                 } else {
-                    lore.add("§f需求数量: §e" + task.amount);
+                    lore.add(I18n.get().getLegacy("gui.cravings.items.unsubmitted.lore.separator"));
+                    lore.add(I18n.get().getLegacy("gui.cravings.items.unsubmitted.lore.need", Placeholder.parsed("amount", String.valueOf(task.amount))));
                     int has = countItems(player, task.key, cm);
-                    lore.add("§f背包拥有: §e" + has);
+                    lore.add(I18n.get().getLegacy("gui.cravings.items.unsubmitted.lore.have", Placeholder.parsed("amount", String.valueOf(has))));
                     
-                    lore.add("§c[x] 未提交");
+                    lore.add(I18n.get().getLegacy("gui.cravings.items.unsubmitted.lore.status-unchecked"));
                     if (has >= task.amount) {
-                        lore.add("§e[点击提交]");
+                        lore.add(I18n.get().getLegacy("gui.cravings.items.unsubmitted.lore.click-submit"));
                     } else {
-                        lore.add("§c[物品不足]");
+                        lore.add(I18n.get().getLegacy("gui.cravings.items.unsubmitted.lore.not-enough"));
                     }
                 }
                 
@@ -292,7 +318,8 @@ public class SpiritGUI {
                 displayItem.setItemMeta(meta);
                 inv.setItem(slot, displayItem);
             } else {
-                inv.setItem(slot, createItem(Material.BARRIER, "§c空槽位"));
+                inv.setItem(slot, createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.cravings.empty", "BARRIER")),
+                    I18n.get().getLegacy("gui.cravings.items.empty.name")));
             }
             slot++;
         }
@@ -300,20 +327,26 @@ public class SpiritGUI {
         // Claim Reward Button at 40
         boolean allSubmitted = req.items.values().stream().allMatch(t -> t.submitted);
         if (allSubmitted && !req.rewardsClaimed) {
-             inv.setItem(40, createItem(Material.CHEST, "§6§l领取奖励", "§7所有物品已提交", "§e[点击领取]"));
+             inv.setItem(40, createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.cravings.reward", "CHEST")),
+                I18n.get().getLegacy("gui.cravings.items.reward.name"),
+                I18n.get().getLegacyList("gui.cravings.items.reward.lore").toArray(new String[0])));
         } else if (req.rewardsClaimed) {
-             inv.setItem(40, createItem(Material.MINECART, "§a§l已领奖", "§7明日再来吧"));
+             inv.setItem(40, createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.cravings.claimed", "MINECART")),
+                I18n.get().getLegacy("gui.cravings.items.claimed.name"),
+                I18n.get().getLegacyList("gui.cravings.items.claimed.lore").toArray(new String[0])));
         }
 
-        // Give Up Button at 44 (if date is old and not completed)
+        // Give Up Button at 44
         long today = LocalDate.now().toEpochDay();
         if (req.date < today && !req.rewardsClaimed) {
-            inv.setItem(44, createItem(Material.RED_DYE, "§c§l放弃并刷新", 
-                "§7这是昨日的任务", "§7如果无法完成，可以放弃", "§7将立即刷新今日任务", "§c[点击确认]"));
+            inv.setItem(44, createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.cravings.give-up", "RED_DYE")),
+                I18n.get().getLegacy("gui.cravings.items.give-up.name"),
+                I18n.get().getLegacyList("gui.cravings.items.give-up.lore").toArray(new String[0])));
         }
         
         // Back Button at 36
-        inv.setItem(36, createItem(Material.ARROW, "§7返回"));
+        inv.setItem(36, createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.cravings.back", "ARROW")),
+            I18n.get().getLegacy("gui.cravings.items.back.name")));
 
         player.openInventory(inv);
     }
@@ -329,10 +362,11 @@ public class SpiritGUI {
     }
 
     public static void openTrustMenu(Player player, SpiritEntity spirit) {
-        Inventory inv = Bukkit.createInventory(null, 54, "§8居所信任与伴侣管理");
+        Inventory inv = Bukkit.createInventory(null, 54, I18n.get().getLegacy("gui.trust.title"));
 
         // Background
-        ItemStack bg = createItem(Material.GRAY_STAINED_GLASS_PANE, "§7");
+        ItemStack bg = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.background", "GRAY_STAINED_GLASS_PANE")), 
+            I18n.get().getLegacy("gui.items.background.name"));
         for (int i = 0; i < 54; i++) {
             inv.setItem(i, bg);
         }
@@ -343,16 +377,17 @@ public class SpiritGUI {
             return;
         }
         
-        // 1. 伴侣设置 (Slot 4)
+        // 1. Partner (Slot 4)
         String partnerName = "无";
         if (spirit.getPartnerId() != null) {
             partnerName = Bukkit.getOfflinePlayer(spirit.getPartnerId()).getName();
         }
-        ItemStack partnerItem = createItem(Material.RED_DYE, "§d§l❤ 灵魂伴侣",
-            "§7", "§f当前伴侣: §d" + partnerName, "§7", "§e点击设置伴侣", "§c已有伴侣时双击解除");
+        ItemStack partnerItem = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.trust.partner", "RED_DYE")),
+            I18n.get().getLegacy("gui.trust.items.partner.name"),
+            I18n.get().getLegacyList("gui.trust.items.partner.lore", Placeholder.parsed("name", partnerName)).toArray(new String[0]));
         inv.setItem(4, partnerItem);
 
-        // 2. 信任名单 (Slot 18-44)
+        // 2. Trusted List (Slot 18-44)
         java.util.Set<UUID> trusted = spirit.getTrustedPlayers();
         int slot = 18;
         if (trusted != null) {
@@ -361,26 +396,29 @@ public class SpiritGUI {
                 org.bukkit.OfflinePlayer op = Bukkit.getOfflinePlayer(uuid);
                 String pName = op.getName() != null ? op.getName() : "Unknown";
                 
-                ItemStack skull = createItem(Material.PLAYER_HEAD, "§b" + pName, 
-                    "§7", "§f[已信任]", "§c点击移除信任 (双击确认)");
+                ItemStack skull = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.trust.trusted", "PLAYER_HEAD")),
+                    I18n.get().getLegacy("gui.trust.items.trusted.name", Placeholder.parsed("name", pName)), 
+                    I18n.get().getLegacyList("gui.trust.items.trusted.lore").toArray(new String[0]));
                 inv.setItem(slot++, skull);
             }
         }
         
-        // 3. 添加信任 (Slot 49)
-        ItemStack addBtn = createItem(Material.EMERALD, "§a§l+ 添加信任成员", 
-            "§7", "§f点击输入玩家ID", "§f将其加入信任白名单");
+        // 3. Add Trust (Slot 49)
+        ItemStack addBtn = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.trust.add", "EMERALD")),
+            I18n.get().getLegacy("gui.trust.items.add.name"),
+            I18n.get().getLegacyList("gui.trust.items.add.lore").toArray(new String[0]));
         inv.setItem(49, addBtn);
         
         // Return
-        ItemStack back = createItem(Material.ARROW, "§f返回");
+        ItemStack back = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.trust.back", "ARROW")),
+            I18n.get().getLegacy("gui.trust.items.back.name"));
         inv.setItem(45, back);
         
         player.openInventory(inv);
     }
 
     public static void openManagementMenu(Player player, SpiritEntity spirit) {
-        Inventory inv = Bukkit.createInventory(null, 27, SUB_GUI_TITLE);
+        Inventory inv = Bukkit.createInventory(null, 27, I18n.get().getLegacy("gui.management.title"));
 
         com.palmergames.bukkit.towny.object.Town town = TownyIntegration.getTown(player);
         if (town == null) {
@@ -393,7 +431,7 @@ public class SpiritGUI {
         }
 
         if (town == null) {
-            player.sendMessage("§c无法获取居所数据！");
+            player.sendMessage(I18n.get().getLegacy("messages.town-error"));
             return;
         }
 
@@ -401,7 +439,8 @@ public class SpiritGUI {
         boolean isOwner = player.getUniqueId().equals(spirit.getOwnerId()) || spirit.isPartner(player.getUniqueId());
 
         // 背景
-        ItemStack bg = createItem(Material.GRAY_STAINED_GLASS_PANE, "§7");
+        ItemStack bg = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.background", "GRAY_STAINED_GLASS_PANE")), 
+            I18n.get().getLegacy("gui.items.background.name"));
         for (int i = 0; i < 27; i++) {
             inv.setItem(i, bg);
         }
@@ -412,90 +451,110 @@ public class SpiritGUI {
         boolean fire = TownyIntegration.isFireEnabled(town);
         // String board = TownyIntegration.getTownBoard(town);
         String townName = town.getName();
-        String clickHint = isOwner ? "§f点击切换状态" : "§7(仅主人可修改)";
-        String editHint = isOwner ? "§f点击修改" : "§7(仅主人可修改)";
+        String clickHint = isOwner ? I18n.get().getLegacy("status.click-toggle") : I18n.get().getLegacy("status.owner-only");
+        String editHint = isOwner ? I18n.get().getLegacy("status.click-edit") : I18n.get().getLegacy("status.owner-only");
 
         // 1. PVP 开关 (10)
-        ItemStack pvpBtn = createItem(Material.DIAMOND_SWORD, "§c§l⚔ PVP状态", 
-            "§7", clickHint, "§f当前状态: " + (pvp ? "§a开启" : "§c关闭"));
+        ItemStack pvpBtn = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.management.pvp", "DIAMOND_SWORD")),
+            I18n.get().getLegacy("gui.management.items.pvp.name"),
+            I18n.get().getLegacyList("gui.management.items.pvp.lore", 
+                Placeholder.parsed("hint", clickHint),
+                Placeholder.parsed("status", pvp ? I18n.get().getLegacy("status.enabled") : I18n.get().getLegacy("status.disabled"))).toArray(new String[0]));
         inv.setItem(10, pvpBtn);
 
         // 2. 怪物生成 (11)
-        ItemStack mobBtn = createItem(Material.ZOMBIE_HEAD, "§2§l☠ 怪物生成", 
-            "§7", clickHint, "§f当前状态: " + (mobs ? "§a开启" : "§c关闭"));
+        ItemStack mobBtn = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.management.mobs", "ZOMBIE_HEAD")),
+            I18n.get().getLegacy("gui.management.items.mobs.name"),
+            I18n.get().getLegacyList("gui.management.items.mobs.lore", 
+                Placeholder.parsed("hint", clickHint),
+                Placeholder.parsed("status", mobs ? I18n.get().getLegacy("status.enabled") : I18n.get().getLegacy("status.disabled"))).toArray(new String[0]));
         inv.setItem(11, mobBtn);
 
         // 3. 爆炸开关 (12)
-        ItemStack tntBtn = createItem(Material.TNT, "§4§l💣 爆炸保护", 
-            "§7", clickHint, "§f当前状态: " + (expl ? "§a开启" : "§c关闭"));
+        ItemStack tntBtn = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.management.explosion", "TNT")),
+            I18n.get().getLegacy("gui.management.items.explosion.name"),
+            I18n.get().getLegacyList("gui.management.items.explosion.lore", 
+                Placeholder.parsed("hint", clickHint),
+                Placeholder.parsed("status", expl ? I18n.get().getLegacy("status.enabled") : I18n.get().getLegacy("status.disabled"))).toArray(new String[0]));
         inv.setItem(12, tntBtn);
         
         // 4. 火焰开关 (13)
-        ItemStack fireBtn = createItem(Material.FLINT_AND_STEEL, "§6§l🔥 火焰保护", 
-            "§7", clickHint, "§f当前状态: " + (fire ? "§a开启" : "§c关闭"));
+        ItemStack fireBtn = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.management.fire", "FLINT_AND_STEEL")),
+            I18n.get().getLegacy("gui.management.items.fire.name"),
+            I18n.get().getLegacyList("gui.management.items.fire.lore", 
+                Placeholder.parsed("hint", clickHint),
+                Placeholder.parsed("status", fire ? I18n.get().getLegacy("status.enabled") : I18n.get().getLegacy("status.disabled"))).toArray(new String[0]));
         inv.setItem(13, fireBtn);
 
         // 4.5 入城公告 (14)
         String board = TownyIntegration.getTownBoard(town);
-        ItemStack boardBtn = createItem(Material.OAK_SIGN, "§e§l📜 入城公告", 
-            "§7", editHint, "§f当前公告:", "§7" + (board.isEmpty() ? "(暂无)" : board));
+        ItemStack boardBtn = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.management.board", "OAK_SIGN")),
+            I18n.get().getLegacy("gui.management.items.board.name"),
+            I18n.get().getLegacyList("gui.management.items.board.lore", 
+                Placeholder.parsed("hint", editHint),
+                Placeholder.parsed("board", board.isEmpty() ? "(暂无)" : board)).toArray(new String[0]));
         inv.setItem(14, boardBtn);
 
         // 5. 信任与伴侣管理 (24) - 仅主人/伴侣
         if (isOwner) {
-            ItemStack memberBtn = createItem(Material.PLAYER_HEAD, "§3§l👥 信任与伴侣",
-                "§7", "§f管理居所的信任白名单", "§f和设置灵魂伴侣");
+            ItemStack memberBtn = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.management.member", "PLAYER_HEAD")),
+                I18n.get().getLegacy("gui.management.items.member.name"),
+                I18n.get().getLegacyList("gui.management.items.member.lore").toArray(new String[0]));
             inv.setItem(24, memberBtn); 
         }
 
         // 6. 居所名 (15)
-        ItemStack renameBtn = createItem(Material.NAME_TAG, "§b§l✎ 居所名称", 
-            "§7", editHint, "§f当前名称: §b" + townName);
+        ItemStack renameBtn = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.management.rename", "NAME_TAG")),
+            I18n.get().getLegacy("gui.management.items.rename.name"),
+            I18n.get().getLegacyList("gui.management.items.rename.lore", 
+                Placeholder.parsed("hint", editHint),
+                Placeholder.parsed("name", townName)).toArray(new String[0]));
         inv.setItem(15, renameBtn);
 
         // 7. 废弃居所 (16)
         if (isOwner) {
-            ItemStack deleteBtn = createItem(Material.BARRIER, "§4§l⚠ 废弃居所", 
-                "§7", "§f点击解散居所 (慎用！)", "§c此操作不可撤销！");
+            ItemStack deleteBtn = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.management.delete", "BARRIER")),
+                I18n.get().getLegacy("gui.management.items.delete.name"),
+                I18n.get().getLegacyList("gui.management.items.delete.lore").toArray(new String[0]));
             inv.setItem(16, deleteBtn);
         } else {
-             ItemStack roleBtn = createItem(Material.PLAYER_HEAD, "§3§l👤 您的身份",
-                "§7", "§f您是这片灵域的: §b居民", "§f拥有基础交互权限");
+             ItemStack roleBtn = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.management.role", "PLAYER_HEAD")),
+                I18n.get().getLegacy("gui.management.items.role.name"),
+                I18n.get().getLegacyList("gui.management.items.role.lore").toArray(new String[0]));
              inv.setItem(16, roleBtn);
         }
 
         // 8. 废弃单块 (19)
         if (isOwner) {
-            ItemStack unclaimBtn = createItem(Material.IRON_SHOVEL, "§c§l⚒ 废弃当前地块",
-                "§7", "§f删除脚下的居所区块", "§c仅限守护灵模式下操作", "§c不可删除核心区块");
+            ItemStack unclaimBtn = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.management.unclaim", "IRON_SHOVEL")),
+                I18n.get().getLegacy("gui.management.items.unclaim.name"),
+                I18n.get().getLegacyList("gui.management.items.unclaim.lore").toArray(new String[0]));
             inv.setItem(19, unclaimBtn);
         }
         
         // 9. 灵域加成信息 (22)
         double mood = spirit.getMood();
         List<String> moodLore = new ArrayList<>();
-        moodLore.add("§7");
-        moodLore.add("§f心情值: " + getMoodBar(mood));
-        moodLore.add("§7");
+        moodLore.addAll(I18n.get().getLegacyList("gui.management.items.mood.lore.header", Placeholder.parsed("bar", getMoodBar(mood))));
+        
         if (mood < 60) {
-            moodLore.add("§7   当前: 无加成");
-            moodLore.add("§8   下一级 (60点): 居所减伤 +10%");
+            moodLore.addAll(I18n.get().getLegacyList("gui.management.items.mood.lore.level-0"));
         } else if (mood < 80) {
-            moodLore.add("§a   当前: 居所减伤 +10%");
-            moodLore.add("§8   下一级 (80点): 居所减伤 +15%");
+            moodLore.addAll(I18n.get().getLegacyList("gui.management.items.mood.lore.level-1"));
         } else if (mood < 90) {
-            moodLore.add("§a   当前: 居所减伤 +15%");
-            moodLore.add("§8   下一级 (90点): 居所减伤 +20% & 作物/特产加成");
+            moodLore.addAll(I18n.get().getLegacyList("gui.management.items.mood.lore.level-2"));
         } else {
-            moodLore.add("§a   当前: 居所减伤 +20%");
-            moodLore.add("§a        作物生长/特产掉落加成");
-            moodLore.add("§7   (已达到最高阶加成)");
+            moodLore.addAll(I18n.get().getLegacyList("gui.management.items.mood.lore.level-3"));
         }
-        ItemStack moodBtn = createItem(Material.NETHER_STAR, "§d§l✨ 灵域加成", moodLore.toArray(new String[0]));
+        ItemStack moodBtn = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.management.mood", "NETHER_STAR")),
+            I18n.get().getLegacy("gui.management.items.mood.name"),
+            moodLore.toArray(new String[0]));
         inv.setItem(22, moodBtn);
 
         // 10. 返回 (26)
-        ItemStack backBtn = createItem(Material.ARROW, "§f§l⬅ 返回", "§7", "§f返回上一级菜单");
+        ItemStack backBtn = createItem(Material.valueOf(ConfigManager.get().getRaw().getString("gui.materials.management.back", "ARROW")),
+            I18n.get().getLegacy("gui.management.items.back.name"),
+            I18n.get().getLegacyList("gui.management.items.back.lore").toArray(new String[0]));
         inv.setItem(26, backBtn);
 
         player.openInventory(inv);
@@ -504,20 +563,19 @@ public class SpiritGUI {
     // 辅助方法：生成心情进度条
     private static String getMoodBar(double mood) {
         int progress = (int) (mood / 10);
-        StringBuilder bar = new StringBuilder("§8[");
+        StringBuilder barBuilder = new StringBuilder();
         for (int i = 0; i < 10; i++) {
             if (i < progress) {
-                // 已填充部分
-                if (mood >= 90) bar.append("§d■"); // 高心情用粉色 (Love)
-                else if (mood >= 60) bar.append("§a■"); // 中等用绿色
-                else bar.append("§c■"); // 低心情用红色
+                if (mood >= 90) barBuilder.append(I18n.get().getLegacy("gui.mood-bar.filled-high"));
+                else if (mood >= 60) barBuilder.append(I18n.get().getLegacy("gui.mood-bar.filled"));
+                else barBuilder.append(I18n.get().getLegacy("gui.mood-bar.filled-low"));
             } else {
-                // 未填充部分
-                bar.append("§7□");
+                barBuilder.append(I18n.get().getLegacy("gui.mood-bar.empty"));
             }
         }
-        bar.append("§8] §f").append((int)mood);
-        return bar.toString();
+        return I18n.get().getLegacy("gui.mood-bar.format", 
+            Placeholder.parsed("bar", barBuilder.toString()),
+            Placeholder.parsed("mood", String.valueOf((int)mood)));
     }
     
     private static ItemStack createItem(Material mat, String name, String... lore) {

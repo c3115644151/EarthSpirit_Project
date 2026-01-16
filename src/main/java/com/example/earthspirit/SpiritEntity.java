@@ -32,6 +32,9 @@ import org.bukkit.attribute.Attribute;
 import org.bukkit.block.Block;
 
 import com.example.earthspirit.cravings.DailyRequest;
+import com.example.earthspirit.configuration.ConfigManager;
+import com.example.earthspirit.configuration.I18n;
+import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.NamespacedKey;
 import org.bukkit.persistence.PersistentDataType;
@@ -124,7 +127,8 @@ public class SpiritEntity {
 
     public void addMood(double amount) {
         this.mood += amount;
-        if (this.mood > 100) this.mood = 100;
+        double maxMood = ConfigManager.get().getDefaultMaxMood();
+        if (this.mood > maxMood) this.mood = maxMood;
         if (this.mood < 0) this.mood = 0;
         updateSkin();
     }
@@ -145,15 +149,15 @@ public class SpiritEntity {
     }
 
     public enum SpiritMode {
-        COMPANION("旅伴"), 
-        GUARDIAN("守护灵");
+        COMPANION("mode.companion"), 
+        GUARDIAN("mode.guardian");
         
-        private final String displayName;
-        SpiritMode(String displayName) {
-            this.displayName = displayName;
+        private final String i18nKey;
+        SpiritMode(String i18nKey) {
+            this.i18nKey = i18nKey;
         }
         public String getDisplayName() {
-            return displayName;
+            return I18n.get().getLegacy(i18nKey);
         }
     }
 
@@ -168,10 +172,10 @@ public class SpiritEntity {
     public SpiritEntity(UUID ownerId, String name, Location spawnLocation, boolean spawnNow) {
         this.ownerId = ownerId;
         this.name = name;
-        this.mood = 60.0;
-        this.hunger = 50.0;
+        this.mood = ConfigManager.get().getDefaultMood();
+        this.hunger = ConfigManager.get().getDefaultHunger();
         this.mode = SpiritMode.COMPANION;
-        this.inventory = new SpiritInventory(name + " 的背包");
+        this.inventory = new SpiritInventory(I18n.get().getLegacy("inventory.title", Placeholder.parsed("name", name)));
         this.strangerFeedDays = new HashMap<>();
         this.lastFeedTime = new HashMap<>();
         
@@ -288,9 +292,9 @@ public class SpiritEntity {
         lastMoodUpdateTime = System.currentTimeMillis();
         
         if (inventoryData != null && !inventoryData.isEmpty()) {
-            this.inventory = SpiritInventory.fromBase64(inventoryData, name + " 的背包");
+            this.inventory = SpiritInventory.fromBase64(inventoryData, I18n.get().getLegacy("inventory.title", Placeholder.parsed("name", name)));
         } else {
-            this.inventory = new SpiritInventory(name + " 的背包");
+            this.inventory = new SpiritInventory(I18n.get().getLegacy("inventory.title", Placeholder.parsed("name", name)));
         }
     }
     
@@ -530,7 +534,7 @@ public class SpiritEntity {
             long now = System.currentTimeMillis();
             // 缩短反馈间隔为 10秒
             if (now - lastHungerFeedbackTime > 10 * 1000) { 
-                showBubble("饿饿...饭饭...", 60); // 显示3秒 (60 ticks)
+                showBubble(I18n.get().getLegacy("bubble.hungry"), 60); // 显示3秒 (60 ticks)
                 lastHungerFeedbackTime = now;
             }
         }
@@ -1260,7 +1264,7 @@ public class SpiritEntity {
     public double getHunger() { return hunger; }
     
     public double getMaxHunger() {
-        return 50.0 + (level * 10.0);
+        return ConfigManager.get().getMaxHungerBase() + (level * ConfigManager.get().getMaxHungerPerLevel());
     }
     
     public void setHunger(double hunger) { 
@@ -1287,12 +1291,20 @@ public class SpiritEntity {
         double max = getMaxHunger();
         double ratio = hunger / max;
         int filled = (int) (ratio * 10);
-        StringBuilder bar = new StringBuilder("§6");
+        
+        String filledChar = I18n.get().getLegacy("gui.hunger-bar.filled");
+        String emptyChar = I18n.get().getLegacy("gui.hunger-bar.empty");
+        
+        StringBuilder bar = new StringBuilder();
         for (int i = 0; i < 10; i++) {
-            if (i < filled) bar.append("■");
-            else bar.append("□");
+            if (i < filled) bar.append(filledChar);
+            else bar.append(emptyChar);
         }
-        return "§f ❖ 饱食度: " + bar.toString() + " §7(" + (int)hunger + "/" + (int)max + ")";
+        return I18n.get().getLegacy("gui.hunger-bar.format", 
+            Placeholder.parsed("bar", bar.toString()),
+            Placeholder.parsed("current", String.valueOf((int)hunger)),
+            Placeholder.parsed("max", String.valueOf((int)max))
+        );
     }
 
     public void updateHunger() {
@@ -1302,12 +1314,14 @@ public class SpiritEntity {
             return;
         }
         
+        long decayInterval = ConfigManager.get().getHungerDecayInterval();
         long diff = now - lastHungerUpdateTime;
-        if (diff > 3600000) { // 1小时 = 3600000ms
-            int hoursPassed = (int) (diff / 3600000);
-            if (hoursPassed > 0) {
-                setHunger(hunger - hoursPassed);
-                lastHungerUpdateTime = now - (diff % 3600000); // 保留余数时间
+        if (diff > decayInterval) { 
+            int intervalsPassed = (int) (diff / decayInterval);
+            if (intervalsPassed > 0) {
+                double decayAmount = ConfigManager.get().getHungerDecayAmount() * intervalsPassed;
+                setHunger(hunger - decayAmount);
+                lastHungerUpdateTime = now - (diff % decayInterval); // 保留余数时间
             }
         }
     }
@@ -1324,14 +1338,15 @@ public class SpiritEntity {
             return;
         }
         
-        // 每10分钟下降1点 (600,000ms)
+        long decayInterval = ConfigManager.get().getMoodDecayInterval();
         // 仅当玩家在线时调用此方法
         long diff = now - lastMoodUpdateTime;
-        if (diff > 600000) {
-            int pointsLost = (int) (diff / 600000);
-            if (pointsLost > 0) {
-                setMood(mood - pointsLost);
-                lastMoodUpdateTime = now - (diff % 600000);
+        if (diff > decayInterval) {
+            int intervalsPassed = (int) (diff / decayInterval);
+            if (intervalsPassed > 0) {
+                double decayAmount = ConfigManager.get().getMoodDecayAmount() * intervalsPassed;
+                setMood(mood - decayAmount);
+                lastMoodUpdateTime = now - (diff % decayInterval);
             }
         }
     }

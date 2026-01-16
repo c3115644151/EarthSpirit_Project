@@ -1,5 +1,6 @@
 package com.example.earthspirit;
 
+import com.example.earthspirit.configuration.ConfigManager;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -154,7 +155,7 @@ public class SpiritManager {
         long now = System.currentTimeMillis();
         
         if (chunkCacheTimestamp.containsKey(chunkKey)) {
-            if (now - chunkCacheTimestamp.get(chunkKey) < CACHE_TTL_MS) {
+            if (now - chunkCacheTimestamp.get(chunkKey) < ConfigManager.get().getCacheTTL()) {
                 return chunkGrowthBonusCache.getOrDefault(chunkKey, 0.0);
             }
         }

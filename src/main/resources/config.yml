@@ -37,21 +37,28 @@ skins:
   miner: "eyJ0ZXh0dXJlcyI6eyJTS0lOIjp7InVybCI6Imh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvZGRhZmIyM2VmYzU3ZDI1MTg3OGU1MzI4ZDExY2I1ZmVjMmYxNDk2NDRjY2Y5YTVkNTI1MjkyNDU2ZTAifX19"
 
 recipes:
-  taming-wand:
-    key: "taming_wand"
+  taming_wand:
+    type: shaped
+    result:
+      item: earthspirit:taming_wand
     shape:
       - " G"
       - "B "
     ingredients:
-      G: GOLD_INGOT
-      B: BLAZE_ROD
-  spirit-bell:
-    key: "spirit_bell"
+      G: 
+        item: minecraft:GOLD_INGOT
+      B: 
+        item: minecraft:BLAZE_ROD
+  spirit_bell:
+    type: shaped
+    result:
+      item: earthspirit:spirit_bell
     shape:
       - "GGG"
       - "G G"
     ingredients:
-      G: GOLD_INGOT
+      G: 
+        item: minecraft:GOLD_INGOT
 
 gui:
   materials:

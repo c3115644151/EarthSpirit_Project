@@ -21,7 +21,6 @@ public class SpiritManager {
     // Caching for external plugins (CuisineFarming)
     private final Map<Long, Double> chunkGrowthBonusCache = new HashMap<>();
     private final Map<Long, Long> chunkCacheTimestamp = new HashMap<>();
-    private static final long CACHE_TTL_MS = 60000; // 1 minute cache
 
     private final File dataFile;
     private final File requestsFile;
@@ -97,21 +96,29 @@ public class SpiritManager {
 
     public void loadData() {
         if (!dataFile.exists()) {
+            plugin.getLogger().info("spirits.yml not found, creating new data file.");
             return;
         }
         
         YamlConfiguration config = YamlConfiguration.loadConfiguration(dataFile);
+        int loaded = 0;
+        int failed = 0;
         
         for (String key : config.getKeys(false)) {
             try {
                 SpiritEntity spirit = SpiritEntity.fromConfig(config.getConfigurationSection(key));
                 if (spirit != null) {
                     spiritsByOwner.put(spirit.getOwnerId(), spirit);
+                    loaded++;
+                } else {
+                    failed++;
                 }
             } catch (Exception e) {
                 plugin.getLogger().log(Level.WARNING, "无法加载地灵数据: " + key, e);
+                failed++;
             }
         }
+        plugin.getLogger().info("Loaded " + loaded + " spirits. Failed: " + failed);
     }
     
     // 检查某个位置附近是否已经有地灵 (防止重叠圈地)

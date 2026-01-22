@@ -2,6 +2,8 @@ package com.example.earthspirit.cravings;
 
 import com.example.earthspirit.EarthSpiritPlugin;
 import com.example.earthspirit.SpiritEntity;
+import com.example.earthspirit.configuration.I18n;
+import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 // import org.bukkit.Sound;
@@ -120,13 +122,15 @@ public class CravingManager {
         spirit.addMood(mood);
         spirit.addExp(exp);
         
-        player.sendMessage("§a[地灵] §f好开心！谢谢你的款待！");
-        player.sendMessage("§e地灵心情 +" + mood + ", 经验 +" + exp);
+        I18n.get().send(player, "messages.cravings.chat.happy");
+        I18n.get().send(player, "messages.cravings.chat.mood-exp", 
+            Placeholder.parsed("mood", String.valueOf(mood)), 
+            Placeholder.parsed("exp", String.valueOf(exp)));
         
         // 2. Pick Items from Reward Pool
         List<ItemStack> rewards = pickRewards(req.grade);
         if (!rewards.isEmpty()) {
-            player.sendMessage("§f获得了回礼:");
+            I18n.get().send(player, "messages.cravings.chat.reward-list");
             for (ItemStack is : rewards) {
                 // Give item
                 HashMap<Integer, ItemStack> left = player.getInventory().addItem(is);
@@ -135,14 +139,16 @@ public class CravingManager {
                     for (ItemStack drop : left.values()) {
                         player.getWorld().dropItemNaturally(player.getLocation(), drop);
                     }
-                    player.sendMessage("§c背包已满，部分物品掉落在地上！");
+                    I18n.get().send(player, "messages.cravings.chat.inventory-full");
                 }
                 
                 String name = is.getType().name();
                 if (is.hasItemMeta() && is.getItemMeta().hasDisplayName()) {
                     name = is.getItemMeta().getDisplayName();
                 }
-                player.sendMessage("§6- " + name + " x" + is.getAmount());
+                I18n.get().send(player, "messages.cravings.chat.item-received", 
+                    Placeholder.parsed("name", name), 
+                    Placeholder.parsed("amount", String.valueOf(is.getAmount())));
             }
         }
         
@@ -152,7 +158,7 @@ public class CravingManager {
              if (seed != null) {
                  if (req.grade.equals("S")) seed.setAmount(2);
                  player.getInventory().addItem(seed);
-                 player.sendMessage("§d§l[稀有] §f你额外获得了一枚 §d灵契之种§f！");
+                 I18n.get().send(player, "messages.cravings.chat.special-reward");
              }
         }
     }
@@ -302,7 +308,7 @@ public class CravingManager {
             ItemStack is = new ItemStack(m);
             ItemMeta meta = is.getItemMeta();
             if (meta != null) {
-                meta.setDisplayName("§f" + getDisplayName(key));
+                meta.setDisplayName(I18n.get().getLegacy("messages.cravings.item-format", Placeholder.component("name", I18n.get().asComponent(getDisplayName(key)))));
                 is.setItemMeta(meta);
             }
             return is;

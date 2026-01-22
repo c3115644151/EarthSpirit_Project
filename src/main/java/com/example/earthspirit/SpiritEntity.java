@@ -157,7 +157,7 @@ public class SpiritEntity {
             this.i18nKey = i18nKey;
         }
         public String getDisplayName() {
-            return I18n.get().getLegacy(i18nKey);
+            return I18n.get().getString(i18nKey);
         }
     }
 
@@ -175,7 +175,7 @@ public class SpiritEntity {
         this.mood = ConfigManager.get().getDefaultMood();
         this.hunger = ConfigManager.get().getDefaultHunger();
         this.mode = SpiritMode.COMPANION;
-        this.inventory = new SpiritInventory(I18n.get().getLegacy("inventory.title", Placeholder.parsed("name", name)));
+        this.inventory = new SpiritInventory(I18n.get().getLegacy("inventory.title", Placeholder.component("name", I18n.get().asComponent(name))));
         this.strangerFeedDays = new HashMap<>();
         this.lastFeedTime = new HashMap<>();
         
@@ -355,9 +355,12 @@ public class SpiritEntity {
     }
 
     private boolean tryLinkExistingEntity(Location loc) {
+        if (loc == null || loc.getWorld() == null) return false;
+        
         NamespacedKey key = new NamespacedKey(EarthSpiritPlugin.getInstance(), "spirit_owner");
         // 扩大搜索范围，防止实体轻微位移导致找不到
-        for (Entity e : loc.getWorld().getNearbyEntities(loc, 5, 5, 5)) {
+        // 增加到 10 格
+        for (Entity e : loc.getWorld().getNearbyEntities(loc, 10, 10, 10)) {
             if (e instanceof ArmorStand) {
                 // 优先检查 PDC
                 if (e.getPersistentDataContainer().has(key, PersistentDataType.STRING)) {
@@ -1230,7 +1233,7 @@ public class SpiritEntity {
                     // 通知主人
                     Player owner = Bukkit.getPlayer(ownerId);
                     if (owner != null) {
-                        owner.sendMessage("§c你的地灵 " + name + " 因为长期被忽视，已经陷入抑郁了！它回到了居所中心，并且不再提供保护！");
+                        I18n.get().send(owner, "messages.status.depressed-warning", Placeholder.parsed("name", name));
                     }
                 }
             } catch (Exception e) {
@@ -1292,15 +1295,15 @@ public class SpiritEntity {
         double ratio = hunger / max;
         int filled = (int) (ratio * 10);
         
-        String filledChar = I18n.get().getLegacy("gui.hunger-bar.filled");
-        String emptyChar = I18n.get().getLegacy("gui.hunger-bar.empty");
+        String filledChar = I18n.get().getRaw("gui.hunger-bar.filled");
+        String emptyChar = I18n.get().getRaw("gui.hunger-bar.empty");
         
         StringBuilder bar = new StringBuilder();
         for (int i = 0; i < 10; i++) {
             if (i < filled) bar.append(filledChar);
             else bar.append(emptyChar);
         }
-        return I18n.get().getLegacy("gui.hunger-bar.format", 
+        return I18n.get().getString("gui.hunger-bar.format", 
             Placeholder.parsed("bar", bar.toString()),
             Placeholder.parsed("current", String.valueOf((int)hunger)),
             Placeholder.parsed("max", String.valueOf((int)max))

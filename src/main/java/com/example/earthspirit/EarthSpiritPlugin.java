@@ -1,19 +1,17 @@
 package com.example.earthspirit;
 
 import org.bukkit.Bukkit;
-import org.bukkit.Material;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.util.Collections;
 import java.util.UUID;
 
 import com.example.earthspirit.configuration.ConfigManager;
 import com.example.earthspirit.configuration.I18n;
+import com.example.earthspirit.configuration.SpiritItemManager;
 import com.example.earthspirit.cravings.CravingManager;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 
@@ -35,6 +33,7 @@ public class EarthSpiritPlugin extends JavaPlugin {
         // Initialize Configuration and I18n
         ConfigManager.init(this);
         I18n.init(this);
+        SpiritItemManager.init(this);
         
         // 初始化 BiomeGifts 集成
         BiomeGiftsHelper.init();
@@ -61,38 +60,23 @@ public class EarthSpiritPlugin extends JavaPlugin {
             }
         }, autoSave, autoSave);
 
-        // 注册合成配方：风铃杖与灵契风铃
-        registerRecipes();
-
         // 注册 NexusCore 集成
         NexusIntegration.register();
 
+        // 注册合成配方：通过 NexusCore
+        if (Bukkit.getPluginManager().isPluginEnabled("NexusCore")) {
+            try {
+                com.nexuscore.recipe.RecipeConfigLoader.load(
+                    (com.nexuscore.NexusCore) Bukkit.getPluginManager().getPlugin("NexusCore"),
+                    getConfig().getConfigurationSection("recipes")
+                );
+                getLogger().info("Recipes registered via NexusCore.");
+            } catch (Exception e) {
+                getLogger().warning("Failed to register recipes via NexusCore: " + e.getMessage());
+            }
+        }
+
         I18n.get().send(Bukkit.getConsoleSender(), "messages.startup");
-    }
-
-    private void registerRecipes() {
-        // 风铃杖配方
-        ItemStack wand = getTamingWand();
-        org.bukkit.NamespacedKey wandKey = new org.bukkit.NamespacedKey(this, "taming_wand");
-        org.bukkit.inventory.ShapedRecipe wandRecipe = new org.bukkit.inventory.ShapedRecipe(wandKey, wand);
-        // 配方形状：
-        //  G 
-        // B
-        wandRecipe.shape(" G", "B ");
-        wandRecipe.setIngredient('G', Material.GOLD_INGOT);
-        wandRecipe.setIngredient('B', Material.BLAZE_ROD);
-        Bukkit.addRecipe(wandRecipe);
-
-        // 灵契风铃配方 (这里补上风铃的配方，假设是金锭围一圈中间放个铃铛)
-        ItemStack bell = getSpiritBell();
-        org.bukkit.NamespacedKey bellKey = new org.bukkit.NamespacedKey(this, "spirit_bell");
-        org.bukkit.inventory.ShapedRecipe bellRecipe = new org.bukkit.inventory.ShapedRecipe(bellKey, bell);
-        // 配方形状:
-        // GGG
-        // G G
-        bellRecipe.shape("GGG", "G G");
-        bellRecipe.setIngredient('G', Material.GOLD_INGOT);
-        Bukkit.addRecipe(bellRecipe);
     }
 
     @Override
@@ -222,22 +206,10 @@ public class EarthSpiritPlugin extends JavaPlugin {
     }
 
     public ItemStack getSpiritBell() {
-        ItemStack item = new ItemStack(Material.BELL);
-        ItemMeta meta = item.getItemMeta();
-        meta.setCustomModelData(10001);
-        meta.setDisplayName(I18n.get().getLegacy("items.spirit-bell.name"));
-        meta.setLore(I18n.get().getLegacyList("items.spirit-bell.lore"));
-        item.setItemMeta(meta);
-        return item;
+        return SpiritItemManager.get().getItem("spirit_bell");
     }
 
     public ItemStack getTamingWand() {
-        ItemStack item = new ItemStack(Material.CARROT_ON_A_STICK);
-        ItemMeta meta = item.getItemMeta();
-        meta.setCustomModelData(10001);
-        meta.setDisplayName(I18n.get().getLegacy("items.taming-wand.name"));
-        meta.setLore(I18n.get().getLegacyList("items.taming-wand.lore"));
-        item.setItemMeta(meta);
-        return item;
+        return SpiritItemManager.get().getItem("taming_wand");
     }
 }

@@ -7,6 +7,8 @@ import com.palmergames.bukkit.towny.object.Resident;
 import com.palmergames.bukkit.towny.object.Town;
 import com.palmergames.bukkit.towny.object.TownBlock;
 import com.palmergames.bukkit.towny.object.WorldCoord;
+import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
+import com.example.earthspirit.configuration.I18n;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import java.util.List;
@@ -16,13 +18,13 @@ public class TownyIntegration {
     @SuppressWarnings("deprecation")
     public static boolean createTown(Player player, String townName, Location location) {
         if (!TownyAPI.getInstance().isTownyWorld(location.getWorld())) {
-            player.sendMessage("§c这个世界不支持创建居所！");
+            I18n.get().send(player, "messages.town.create-world-error");
             return false;
         }
 
         // 检查该区块是否已被占领
         if (!TownyAPI.getInstance().isWilderness(location)) {
-            player.sendMessage("§c这里已经有居所了！");
+            I18n.get().send(player, "messages.town.occupied");
             return false;
         }
 
@@ -33,17 +35,17 @@ public class TownyIntegration {
             if (resident == null) {
                 // 理论上玩家在线应该会有 Resident，如果没有则尝试获取或报错
                 // Towny 0.96+ 应该会自动处理，但为了安全：
-                player.sendMessage("§c无法获取你的居所数据，请重新加入服务器重试。");
+                I18n.get().send(player, "messages.town.data-error");
                 return false;
             }
 
             if (resident.hasTown()) {
-                player.sendMessage("§c你已经拥有或加入了一个居所，无法召唤地灵！");
+                I18n.get().send(player, "messages.town.already-has-town");
                 return false;
             }
 
             if (universe.hasTown(townName)) {
-                player.sendMessage("§c居所名称 " + townName + " 已存在！");
+                I18n.get().send(player, "messages.town.name-exists", Placeholder.parsed("name", townName));
                 return false;
             }
 
@@ -102,7 +104,7 @@ public class TownyIntegration {
             return true;
 
         } catch (TownyException e) {
-            player.sendMessage("§c创建居所失败: " + e.getMessage());
+            I18n.get().send(player, "messages.town.create-fail", Placeholder.parsed("error", e.getMessage()));
             e.printStackTrace();
             // 尝试回滚?
             try {
@@ -173,7 +175,7 @@ public class TownyIntegration {
             
             // Check if it's the home block
             if (town.hasHomeBlock() && town.getHomeBlock().equals(townBlock)) {
-                player.sendMessage("§c你不能废弃城镇的核心区块！如果想解散城镇，请使用“废弃居所”。");
+                I18n.get().send(player, "messages.town.unclaim-home-error");
                 return false;
             }
 
@@ -191,7 +193,7 @@ public class TownyIntegration {
             if (town == null) return false;
 
             if (!TownyAPI.getInstance().isWilderness(player.getLocation())) {
-                player.sendMessage("§c这里已经被占领了！");
+                I18n.get().send(player, "messages.town.occupied");
                 return false;
             }
 
@@ -209,7 +211,7 @@ public class TownyIntegration {
             return true;
         } catch (Exception e) {
             e.printStackTrace();
-            player.sendMessage("§c圈地失败: " + e.getMessage());
+            I18n.get().send(player, "messages.town.claim-fail", Placeholder.parsed("error", e.getMessage()));
             return false;
         }
     }
@@ -232,7 +234,7 @@ public class TownyIntegration {
                 try {
                     newMayor.removeTown();
                 } catch (Exception e) {
-                    newOwner.sendMessage("§c无法将你从原城镇移除: " + e.getMessage());
+                    I18n.get().send(newOwner, "messages.town.leave-fail", Placeholder.parsed("error", e.getMessage()));
                     return;
                 }
             }
@@ -251,11 +253,11 @@ public class TownyIntegration {
             universe.getDataSource().saveTown(town);
             universe.getDataSource().saveResident(newMayor);
 
-            newOwner.sendMessage("§a你已正式接管居所 " + town.getName() + "！");
+            I18n.get().send(newOwner, "messages.town.transfer-success", Placeholder.parsed("town", town.getName()));
 
         } catch (Exception e) {
             e.printStackTrace();
-            newOwner.sendMessage("§c居所交接失败: " + e.getMessage());
+            I18n.get().send(newOwner, "messages.town.transfer-fail", Placeholder.parsed("error", e.getMessage()));
         }
     }
 
@@ -284,23 +286,31 @@ public class TownyIntegration {
     }
     
     public static void togglePvp(Town town, Player player) {
-        player.performCommand("town toggle pvp");
-        updateTownPermissions(town);
+        boolean newState = !town.isPVP();
+        town.setPVP(newState);
+        TownyUniverse.getInstance().getDataSource().saveTown(town);
+        player.sendMessage(I18n.get().getLegacy("prefix") + "PVP: " + (newState ? I18n.get().getLegacy("messages.status.enabled") : I18n.get().getLegacy("messages.status.disabled")));
     }
 
     public static void toggleMobs(Town town, Player player) {
-        player.performCommand("town toggle mobs");
-        updateTownPermissions(town);
+        boolean newState = !town.hasMobs();
+        town.setHasMobs(newState);
+        TownyUniverse.getInstance().getDataSource().saveTown(town);
+        player.sendMessage(I18n.get().getLegacy("prefix") + "Mobs: " + (newState ? I18n.get().getLegacy("messages.status.enabled") : I18n.get().getLegacy("messages.status.disabled")));
     }
 
     public static void toggleExplosion(Town town, Player player) {
-        player.performCommand("town toggle explosion");
-        updateTownPermissions(town);
+        boolean newState = !town.isExplosion();
+        town.setExplosion(newState);
+        TownyUniverse.getInstance().getDataSource().saveTown(town);
+        player.sendMessage(I18n.get().getLegacy("prefix") + "Explosion: " + (newState ? I18n.get().getLegacy("messages.status.enabled") : I18n.get().getLegacy("messages.status.disabled")));
     }
 
     public static void toggleFire(Town town, Player player) {
-        player.performCommand("town toggle fire");
-        updateTownPermissions(town);
+        boolean newState = !town.isFire();
+        town.setFire(newState);
+        TownyUniverse.getInstance().getDataSource().saveTown(town);
+        player.sendMessage(I18n.get().getLegacy("prefix") + "Fire: " + (newState ? I18n.get().getLegacy("messages.status.enabled") : I18n.get().getLegacy("messages.status.disabled")));
     }
     
     public static void updateTownPermissions(Town town) {

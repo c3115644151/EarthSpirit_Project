@@ -54,7 +54,18 @@ public class I18n {
 
     public Component getComponent(String key, TagResolver... resolvers) {
         String msg = messages.getOrDefault(key, "<red>Missing key: " + key);
+        if (msg.contains("§")) {
+            return LegacyComponentSerializer.legacySection().deserialize(msg);
+        }
         return miniMessage.deserialize(msg, resolvers);
+    }
+
+    public String getString(String key, TagResolver... resolvers) {
+        return miniMessage.serialize(getComponent(key, resolvers));
+    }
+
+    public String getRaw(String key) {
+        return messages.getOrDefault(key, "Missing key: " + key);
     }
     
     public String getLegacy(String key, TagResolver... resolvers) {
@@ -62,20 +73,50 @@ public class I18n {
     }
     
     public java.util.List<String> getLegacyList(String key, TagResolver... resolvers) {
+        if (!config.contains(key)) {
+            return java.util.Collections.singletonList("Missing key: " + key);
+        }
         java.util.List<String> rawList = config.getStringList(key);
-        if (rawList.isEmpty()) {
-             if (config.isString(key)) {
-                 rawList = java.util.Collections.singletonList(config.getString(key));
-             } else {
-                 return java.util.Collections.singletonList("Missing key: " + key);
-             }
+        if (rawList.isEmpty() && config.isString(key)) {
+             rawList = java.util.Collections.singletonList(config.getString(key));
         }
         
         java.util.List<String> result = new java.util.ArrayList<>();
         for (String raw : rawList) {
-            result.add(LegacyComponentSerializer.legacySection().serialize(miniMessage.deserialize(raw, resolvers)));
+            Component c;
+            if (raw.contains("§")) {
+                c = LegacyComponentSerializer.legacySection().deserialize(raw);
+            } else {
+                c = miniMessage.deserialize(raw, resolvers);
+            }
+            result.add(LegacyComponentSerializer.legacySection().serialize(c));
         }
         return result;
+    }
+
+    public java.util.List<Component> getComponentList(String key, TagResolver... resolvers) {
+        if (!config.contains(key)) {
+            return java.util.Collections.singletonList(Component.text("Missing key: " + key));
+        }
+        java.util.List<String> rawList = config.getStringList(key);
+        if (rawList.isEmpty() && config.isString(key)) {
+             rawList = java.util.Collections.singletonList(config.getString(key));
+        }
+        
+        java.util.List<Component> result = new java.util.ArrayList<>();
+        for (String raw : rawList) {
+            if (raw.contains("§")) {
+                result.add(LegacyComponentSerializer.legacySection().deserialize(raw));
+            } else {
+                result.add(miniMessage.deserialize(raw, resolvers));
+            }
+        }
+        return result;
+    }
+
+    public Component asComponent(String legacyText) {
+        if (legacyText == null) return Component.empty();
+        return LegacyComponentSerializer.legacySection().deserialize(legacyText);
     }
 
     public void send(CommandSender sender, String key, TagResolver... resolvers) {

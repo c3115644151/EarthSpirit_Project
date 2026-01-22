@@ -28,24 +28,115 @@ messages:
     mode-guardian: "守护灵"
     mode-switch: "<yellow>地灵已切换为<mode>形态。"
     session-expired: "<red>交互会话已过期，请重新右键地灵。"
+    guardian-only: "<red>地灵需要处于守护灵形态才能进行此操作。(Shift+右键切换)"
+    companion-only: "<red>地灵需要处于旅伴形态才能进行此操作。(Shift+右键切换)"
+    owner-only: "<red>只有居所主人 (Owner) 可以执行此操作。"
+    homeless: "<gray>这只地灵正在流浪，还没有属于它的家。"
+    not-yours: "<red>这不是你的地灵。"
+    comfort-success: "<yellow>你安抚了这个被遗弃的地灵。(<days>/3)"
+    pet:
+      success: "<light_purple>你温柔地抚摸了 <name> 的头。"
+      result: "<light_purple><name> 蹭了蹭你的手，心情变好了！(心情 +<mood>, 经验 +<exp>)"
+  status:
+    abandoned: "<red> [!] 处于被遗弃状态"
+    wandering: "<aqua> [✈] 正在流浪"
+    following: "<gold> [👣] 正在跟随主人"
+    guarding: "<green> [√] 正在守护这片土地"
+    enabled: "<green>开启"
+    disabled: "<red>关闭"
+    click-toggle: "<white>点击切换状态"
+    click-edit: "<white>点击修改"
+    owner-only: "<gray>(仅主人可修改)"
+    depressed-warning: "<red>你的地灵 <name> 因为长期被忽视，已经陷入抑郁了！它回到了居所中心，并且不再提供保护！"
   input:
     cancel: "<yellow>已取消操作。"
+    cancel-keyword: "取消"
     canceled: "<yellow>操作已取消。"
+    player-not-found: "<red>找不到该玩家！"
     rename:
+      format: "<green><name>"
       success: "<green>地灵的名字已更新为: <name>"
       fail: "<red>找不到地灵，改名失败。"
+      prompt: "<yellow>请在聊天栏输入地灵的新名字："
     town-rename:
       success: "<green>居所名称已更新为: <name>"
+      prompt: "<yellow>请在聊天栏输入新的居所名称："
     town-board:
       success: "<green>居所公告已更新！"
+      prompt: "<yellow>请在聊天栏输入新的居所公告："
     delete:
       success: "<red>居所已废弃！地灵变为了流浪状态。"
       fail: "<red>废弃失败！可能你不是居所主人。"
+      warning1: "<red><bold>警告！废弃居所将删除所有领地！"
+      warning2: "<red>所有建筑保护将失效！"
+      prompt: "<yellow>请在聊天栏输入 <red>confirm <yellow>确认废弃，或输入 <green>cancel <yellow>取消。"
     release:
       success: "<red>你解除了与地灵的契约。"
+      warning1: "<red><bold>警告！解除契约后，地灵将永远消失！"
+      warning2: "<red>它所守护的居所也将失去保护！"
+      prompt: "<yellow>请在聊天栏输入 <red>release <yellow>确认解除，或输入 <green>cancel <yellow>取消。"
+    partner-set:
+      prompt: "<yellow>请在聊天栏输入要结为伴侣的玩家名字："
+    trust-add:
+      prompt: "<yellow>请在聊天栏输入要信任的玩家名字："
+  trust:
+    remove-success: "<green>已移除对 <yellow><name> <green>的信任。"
+    remove-sync-fail: "<red>移除信任成功，但同步到居所失败（可能需要手动移除）。"
+    remove-confirm: "<yellow>再次点击该玩家头像以确认移除信任: <red><name>"
+    add-success: "<green>已添加信任: <yellow><name>"
+    add-sync-fail: "<red>添加信任成功，但同步到居所失败（可能需要手动添加）。"
+  partner:
+    unbind-success: "<red>你解除了与伴侣的羁绊。"
+    unbind-confirm: "<red>再次点击以确认解除伴侣关系！"
+    self-error: "<red>你不能与自己结为伴侣！"
+    request-received: "<light_purple><bold>[地灵羁绊] <white>收到来自 <yellow><sender> <white>的伴侣请求！"
+    request-hint: "<white>输入 <green>/esp partner accept <white>接受，或 <red>/esp partner deny <white>拒绝。"
+    request-sent: "<green>已向 <yellow><target> <green>发送伴侣请求！"
+    request-offline: "<green>已向 <yellow><target> <green>发送离线伴侣请求！"
   join:
     partner-request: "<light_purple><bold>[地灵羁绊] <white>收到来自 <yellow><name> <white>的伴侣请求！"
     partner-hint: "<white>输入 <green>/esp partner accept <white>接受，或 <red>/esp partner deny <white>拒绝。"
+  town:
+    suffix: "的居所"
+    create-world-error: "<red>这个世界不支持创建居所！"
+    occupied: "<red>这里已经有居所了！"
+    data-error: "<red>无法获取你的居所数据，请重新加入服务器重试。"
+    already-has-town: "<red>你已经拥有或加入了一个居所，无法召唤地灵！"
+    name-exists: "<red>居所名称 <name> 已存在！"
+    create-fail: "<red>创建居所失败: <error>"
+    unclaim-home-error: "<red>你不能废弃城镇的核心区块！如果想解散城镇，请使用“废弃居所”。"
+    unclaim-location: "<red>请将地灵带到需要废弃的区块上！"
+    unclaim-success: "<green>成功废弃了该地块！"
+    unclaim-fail: "<red>废弃失败！可能这不是你的居所，或者是核心区块。"
+    claim-fail: "<red>圈地失败: <error>"
+    leave-fail: "<red>无法将你从原城镇移除: <error>"
+    transfer-success: "<green>你已正式接管居所 <town>！"
+    transfer-fail: "<red>居所交接失败: <error>"
+    created: "<green><bold>居所结界已展开！"
+    expand-limit: "<red>居所范围已达上限！(Lv.<level> 上限: <max>格)"
+    expand-hint: "<yellow>提升地灵等级可解锁更多居所空间。"
+    expand-success: "<green>居所扩充成功！"
+    no-town: "<red>你还没有创建居所！请点击不死图腾图标进行圈地。"
+  time:
+    hour: "小时"
+    minute: "分钟"
+  feed:
+    no-food: "<red>你背包里没有食物！(面包/蛋糕/蜂蜜等)"
+    success-full: "<yellow>你喂食了<name>，它看起来很满足！"
+    stats-full: "<white>(心情 +<mood>, 经验 +<exp>, 饱食度 +<hunger>)"
+    success-snack: "<yellow>你给<name> 喂了一些零食。(心情 +1, 饱食度 +1)"
+    success-full-mood: "<yellow><name> 吃饱了，心情没有变化。(饱食度 +1)"
+    item-format: "<white><name>"
+  cravings:
+    chat:
+      happy: "<green>[地灵] <white>好开心！谢谢你的款待！"
+      mood-exp: "<yellow>地灵心情 +<mood>, 经验 +<exp>"
+      reward-list: "<white>获得了回礼:"
+      inventory-full: "<red>背包已满，部分物品掉落在地上！"
+      item-received: "<gold>- <name> x<amount>"
+      special-reward: "<light_purple><bold>[稀有] <white>你额外获得了一枚 <light_purple>灵契之种<white>！"
+    not-enough: "<red>物品不足！"
+    item-format: "<white><name>"
 
 commands:
   only-player: "<red>只有玩家可以使用此命令！"
@@ -79,6 +170,8 @@ gui:
   sub-title: "<dark_gray>[ <dark_green>地灵羁绊 <dark_gray>] <black>居所管理"
   
   items:
+    partner-info:
+      name: "<light_purple>信任与伴侣"
     background:
       name: "<gray>"
     head:
@@ -136,239 +229,225 @@ gui:
       name: "<gray><bold>🔒 访客模式"
       lore:
         - "<gray>"
-        - "<white>你需要成为该城镇的居民"
-        - "<white>才能与地灵互动。"
+        - "<red>你不是地灵的主人"
     feed-comfort-button:
       name: "<gold><bold>♨ 投喂 (安抚)"
       lore:
         - "<gray>"
-        - "<white>这个地灵看起来很孤独..."
-        - "<white>给它一点食物安抚它吧。"
-        - "<gray>(每日限一次，不增加心情)"
+        - "<white>给这只被遗弃的地灵一点食物..."
+        - "<gray>(连续投喂3天可领养)"
     create-home-button:
-      name: "<green><bold>🌱 建立居所"
+      name: "<green><bold>🏠 建立居所"
       lore:
         - "<gray>"
-        - "<white>这只地灵还没有守护的土地。"
-        - "<white>点击将脚下区块设为 <yellow>核心居所<white>！"
-        - "<red>(仅限守护灵模式)"
+        - "<white>在此处建立地灵居所 (Town)"
+        - "<gray>(需要消耗大量金币)"
     no-home-button:
-      name: "<gray><bold>未知居所"
+      name: "<gray><bold>🏠 建立居所"
       lore:
         - "<gray>"
-        - "<white>这只地灵还在流浪..."
+        - "<red>此处不可建立居所"
+        - "<gray>(已有领地或世界不支持)"
     manage-home-button:
-      name: "<dark_green><bold>⚒ 居所管理"
+      name: "<green><bold>🏠 居所管理"
       lore:
         - "<gray>"
-        - "<white>当前居所: <green><town>"
-        - "<gray>"
-        - "<white>点击查看或管理居所"
-        - "<gray>(权限/公告/升级)"
+        - "<white>当前居所: <yellow><town>"
+        - "<gray>(点击管理权限/公告)"
     expand-home-button:
-      name: "<gold><bold>🚩 扩充居所"
+      name: "<gold><bold>⇲ 扩充领地"
       lore:
         - "<gray>"
-        - "<white>将脚下区块纳入居所范围"
-        - "<white>当前等级上限: <yellow><max> 格"
-        - "<red>(仅限守护灵模式)"
+        - "<white>以当前位置为中心扩充领地"
+        - "<gray>(上限: <max> 格)"
     rename-button:
-      name: "<yellow><bold>✎ 地灵改名"
+      name: "<yellow><bold>✎ 重命名"
       lore:
         - "<gray>"
-        - "<white>给地灵起个新名字"
-        - "<white>当前名字: <yellow><name>"
+        - "<white>给地灵改个名字"
+        - "<gray>当前: <name>"
     release-button:
-      name: "<dark_red><bold>☠ 解除契约"
+      name: "<red><bold>⚠ 解除契约"
       lore:
         - "<gray>"
-        - "<white>释放地灵，解除契约"
-        - "<red><warning>"
-        - "<red>你可以使用风铃召唤新的地灵。"
-
-  mood-bar:
-    filled: "<green>■"
-    filled-high: "<light_purple>■"
-    filled-low: "<red>■"
-    empty: "<gray>□"
-    format: "<dark_gray>[<bar><dark_gray>] <white><mood>"
-
+        - "<red>将地灵放归自然"
+        - "<dark_red><bold><warning>"
+  
   hunger-bar:
     filled: "<gold>■"
     empty: "<gray>□"
-    format: "<white> ❖ 饱食度: <bar> <gray>(<current>/<max>)"
+    format: "<white> ❖ 饱食度: <bar> <dark_gray>(<current>/<max>)"
+  
+  mood-bar:
+    filled: "<light_purple>■"
+    filled-high: "<light_purple>■"
+    filled-low: "<gray>■"
+    empty: "<gray>□"
+    format: "<bar> <dark_gray><mood>"
 
   cravings:
-    title: "嘴馋清单 - <name>"
+    title: "<dark_gray>[ <dark_green>嘴馋清单 <dark_gray>] <black><name>"
     items:
       info-book:
-        name: "<yellow><bold>今日需求"
+        name: "<aqua><bold>今日任务"
         lore:
-          date: "<gray>日期: <date>"
-          grade: "<gray>评分: <grade>"
-          status: "<gray>状态: <status>"
-          status-claimed: "<green>已领奖"
-          status-incomplete: "<red>未完成"
+          - "<gray>----------------"
+          - "<white>日期: <yellow><date>"
+          - "<white>当前评分: <yellow><grade>"
+          - "<status>"
+          - "<gray>----------------"
+        status-claimed: "<green>[√] 奖励已领取"
+        status-incomplete: "<red>[x] 未完成/未领取"
       submitted:
-        name: "<green><bold>[√] 已提交"
+        name: "<green>已提交"
         lore:
-          - "<gray>已提交: <name> x<amount>"
+          - "<gray>"
+          - "<white>物品: <name>"
+          - "<white>数量: <amount>"
+          - "<green>已完成 √"
       unsubmitted:
         lore:
           separator: "<gray>----------------"
-          need: "<white>需求数量: <yellow><amount>"
-          have: "<white>背包拥有: <yellow><amount>"
+          need: "<white>需求: <yellow><amount> 个"
+          have: "<white>背包: <green><amount> 个"
           status-unchecked: "<red>[x] 未提交"
-          click-submit: "<yellow>[点击提交]"
-          not-enough: "<red>[物品不足]"
+          click-submit: "<yellow>[点击提交物品]"
+          not-enough: "<red>物品不足"
       empty:
-        name: "<red>空槽位"
+        name: "<gray>(空任务槽)"
       reward:
         name: "<gold><bold>领取奖励"
         lore:
-          - "<gray>所有物品已提交"
-          - "<yellow>[点击领取]"
+          - "<gray>"
+          - "<white>所有需求已满足！"
+          - "<yellow>[点击领取今日回礼]"
       claimed:
         name: "<green><bold>已领奖"
         lore:
-          - "<gray>明日再来吧"
+          - "<gray>"
+          - "<white>明天再来看看吧~"
       give-up:
-        name: "<red><bold>放弃并刷新"
+        name: "<red><bold>⚠ 放弃任务"
         lore:
-          - "<gray>这是昨日的任务"
-          - "<gray>如果无法完成，可以放弃"
-          - "<gray>将立即刷新今日任务"
-          - "<red>[点击确认]"
+          - "<gray>"
+          - "<red>这是昨天的任务..."
+          - "<yellow>[点击刷新为今日任务]"
       back:
         name: "<gray>返回"
-
-  trust:
-    title: "<dark_gray>居所信任与伴侣管理"
-    items:
-      partner:
-        name: "<light_purple><bold>❤ 灵魂伴侣"
-        lore:
-          - "<gray>"
-          - "<white>当前伴侣: <light_purple><name>"
-          - "<gray>"
-          - "<yellow>点击设置伴侣"
-          - "<red>已有伴侣时双击解除"
-      trusted:
-        name: "<aqua><name>"
-        lore:
-          - "<gray>"
-          - "<white>[已信任]"
-          - "<red>点击移除信任 (双击确认)"
-      add:
-        name: "<green><bold>+ 添加信任成员"
-        lore:
-          - "<gray>"
-          - "<white>点击输入玩家ID"
-          - "<white>将其加入信任白名单"
-      back:
-        name: "<white>返回"
+        lore: []
 
   management:
-    title: "<dark_gray>[ <dark_green>地灵羁绊 <dark_gray>] <black>居所管理"
+    title: "<dark_gray>[ <dark_green>居所管理 <dark_gray>] <black>设置"
     items:
       pvp:
-        name: "<red><bold>⚔ PVP状态"
+        name: "<red><bold>⚔ PVP开关"
         lore:
           - "<gray>"
+          - "<white>状态: <status>"
           - "<hint>"
-          - "<white>当前状态: <status>"
       mobs:
-        name: "<dark_green><bold>☠ 怪物生成"
+        name: "<green><bold>🧟 怪物生成"
         lore:
           - "<gray>"
+          - "<white>状态: <status>"
           - "<hint>"
-          - "<white>当前状态: <status>"
       explosion:
-        name: "<dark_red><bold>💣 爆炸保护"
+        name: "<red><bold>💥 爆炸保护"
         lore:
           - "<gray>"
+          - "<white>状态: <status>"
           - "<hint>"
-          - "<white>当前状态: <status>"
       fire:
-        name: "<gold><bold>🔥 火焰保护"
+        name: "<gold><bold>🔥 火焰蔓延"
         lore:
           - "<gray>"
+          - "<white>状态: <status>"
           - "<hint>"
-          - "<white>当前状态: <status>"
       board:
-        name: "<yellow><bold>📜 入城公告"
+        name: "<yellow><bold>📢 入城公告"
         lore:
           - "<gray>"
+          - "<white>当前: <board>"
           - "<hint>"
-          - "<white>当前公告:"
-          - "<gray><board>"
-      member:
-        name: "<dark_aqua><bold>👥 信任与伴侣"
-        lore:
-          - "<gray>"
-          - "<white>管理居所的信任白名单"
-          - "<white>和设置灵魂伴侣"
       rename:
-        name: "<aqua><bold>✎ 居所名称"
+        name: "<aqua><bold>✎ 居所改名"
         lore:
           - "<gray>"
+          - "<white>当前: <name>"
           - "<hint>"
-          - "<white>当前名称: <aqua><name>"
       delete:
-        name: "<dark_red><bold>⚠ 废弃居所"
+        name: "<red><bold>⚠ 废弃居所"
         lore:
           - "<gray>"
-          - "<white>点击解散居所 (慎用！)"
-          - "<red>此操作不可撤销！"
+          - "<red>删除整个居所领地！"
+          - "<dark_red>警告：无法撤销！"
       role:
-        name: "<dark_aqua><bold>👤 您的身份"
+        name: "<gray><bold>身份"
         lore:
           - "<gray>"
-          - "<white>您是这片灵域的: <aqua>居民"
-          - "<white>拥有基础交互权限"
+          - "<white>你是本居所的居民"
       unclaim:
-        name: "<red><bold>⚒ 废弃当前地块"
+        name: "<red><bold>❌ 废弃此地块"
         lore:
           - "<gray>"
-          - "<white>删除脚下的居所区块"
-          - "<red>仅限守护灵模式下操作"
-          - "<red>不可删除核心区块"
+          - "<white>仅废弃当前站立的区块"
+          - "<gray>(保留其他领地)"
+      member:
+        name: "<light_purple><bold>👥 成员管理"
+        lore:
+          - "<gray>"
+          - "<white>管理信任的玩家"
       mood:
         name: "<light_purple><bold>✨ 灵域加成"
         lore:
           header:
             - "<gray>"
-            - "<white>心情值: <bar>"
-            - "<gray>"
+            - "<white>心情: <bar>"
+            - ""
+            - "<white>当前加成:"
           level-0:
-            - "<gray>   当前: 无加成"
-            - "<dark_gray>   下一级 (60点): 居所减伤 +10%"
+            - "<gray>- 无加成 (心情过低)"
+            - "<red>(需保持心情 > 60)"
           level-1:
-            - "<green>   当前: 居所减伤 +10%"
-            - "<dark_gray>   下一级 (80点): 居所减伤 +15%"
+            - "<green>+ 作物生长速度 (小)"
+            - "<green>+ 生命恢复速度 (小)"
           level-2:
-            - "<green>   当前: 居所减伤 +15%"
-            - "<dark_gray>   下一级 (90点): 居所减伤 +20% & 作物/特产加成"
+            - "<green>+ 作物生长速度 (中)"
+            - "<green>+ 生命恢复速度 (中)"
+            - "<green>+ 移动速度 (居所内)"
           level-3:
-            - "<green>   当前: 居所减伤 +20%"
-            - "<green>        作物生长/特产掉落加成"
-            - "<gray>   (已达到最高阶加成)"
+            - "<gold>+ 作物生长速度 (大)"
+            - "<gold>+ 生命恢复速度 (大)"
+            - "<gold>+ 移动速度 (居所内)"
+            - "<gold>+ 幸运等级 (居所内)"
       back:
-        name: "<white><bold>⬅ 返回"
+        name: "<gray>返回"
+        lore: []
+
+  trust:
+    title: "<dark_gray>[ <dark_green>地灵羁绊 <dark_gray>] <black>信任管理"
+    items:
+      partner:
+        name: "<light_purple><bold>❤ 灵魂伴侣"
         lore:
           - "<gray>"
-          - "<white>返回上一级菜单"
-
-status:
-  abandoned: "<red> [!] 处于被遗弃状态"
-  wandering: "<aqua> [✈] 正在流浪"
-  following: "<gold> [👣] 正在跟随主人"
-  guarding: "<green> [√] 正在守护这片土地"
-  enabled: "<green>开启"
-  disabled: "<red>关闭"
-  click-toggle: "<white>点击切换状态"
-  click-edit: "<white>点击修改"
-  owner-only: "<gray>(仅主人可修改)"
+          - "<white>当前伴侣: <yellow><name>"
+          - "<gray>(共享所有权限，包括居所管理)"
+          - "<gray>(点击设置/解除，需对方在线)"
+      trusted:
+        name: "<yellow>★ <name>"
+        lore:
+          - "<gray>"
+          - "<white>已信任玩家"
+          - "<red>[Shift+点击 移除]"
+      add:
+        name: "<green><bold>+ 添加信任"
+        lore:
+          - "<gray>"
+          - "<white>输入玩家名字添加"
+          - "<gray>(仅给予交互权限)"
+      back:
+        name: "<gray>返回"
 
 items:
   taming-wand:
@@ -379,3 +458,6 @@ items:
     name: "<aqua><bold>灵契风铃"
     lore:
       - "<gray>右键召唤地灵"
+
+cravings:
+  item-format: "<white><name>"

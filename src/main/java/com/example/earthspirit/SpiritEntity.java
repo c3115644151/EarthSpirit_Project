@@ -292,9 +292,9 @@ public class SpiritEntity {
         lastMoodUpdateTime = System.currentTimeMillis();
         
         if (inventoryData != null && !inventoryData.isEmpty()) {
-            this.inventory = SpiritInventory.fromBase64(inventoryData, I18n.get().getLegacy("inventory.title", Placeholder.parsed("name", name)));
+            this.inventory = SpiritInventory.fromBase64(inventoryData, I18n.get().getLegacy("inventory.title", Placeholder.component("name", I18n.get().asComponent(name))));
         } else {
-            this.inventory = new SpiritInventory(I18n.get().getLegacy("inventory.title", Placeholder.parsed("name", name)));
+            this.inventory = new SpiritInventory(I18n.get().getLegacy("inventory.title", Placeholder.component("name", I18n.get().asComponent(name))));
         }
     }
     

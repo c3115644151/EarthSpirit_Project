@@ -50,6 +50,7 @@ import java.util.concurrent.ThreadLocalRandom;
 
 import com.example.earthspirit.configuration.I18n;
 import com.example.earthspirit.configuration.SpiritItemManager;
+import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 
 import org.bukkit.event.player.PlayerJoinEvent;
@@ -155,7 +156,7 @@ public class SpiritListener implements Listener {
                 String finalName = "§a" + newName.replace("&", "§");
                 spirit.setName(finalName);
                 plugin.getManager().saveData();
-                I18n.get().send(p, "messages.input.rename.success", Placeholder.parsed("name", finalName));
+                I18n.get().send(p, "messages.input.rename.success", Placeholder.component("name", I18n.get().asComponent(finalName)));
                 p.playSound(p.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1, 1);
             } else {
                 I18n.get().send(p, "messages.input.rename.fail");
@@ -374,10 +375,10 @@ public class SpiritListener implements Listener {
         // Shift + 右键：切换模式 (仅限主人)
         if (p.isSneaking() && isOwner) {
             spiritData.toggleMode();
-            String modeStr = (spiritData.getMode() == SpiritEntity.SpiritMode.COMPANION) ? 
-                I18n.get().getLegacy("messages.interact.mode-companion") : 
-                I18n.get().getLegacy("messages.interact.mode-guardian");
-            I18n.get().send(p, "messages.interact.mode-switch", Placeholder.parsed("mode", modeStr));
+            Component modeComp = (spiritData.getMode() == SpiritEntity.SpiritMode.COMPANION) ? 
+                I18n.get().getComponent("messages.interact.mode-companion") : 
+                I18n.get().getComponent("messages.interact.mode-guardian");
+            I18n.get().send(p, "messages.interact.mode-switch", Placeholder.component("mode", modeComp));
             return;
         }
 
@@ -913,7 +914,7 @@ public class SpiritListener implements Listener {
             spirit.addExp(expAdd);
             spirit.addHunger(hungerAdd);
             
-            I18n.get().send(p, "messages.feed.success-full", Placeholder.parsed("name", spirit.getName()));
+            I18n.get().send(p, "messages.feed.success-full", Placeholder.component("name", I18n.get().asComponent(spirit.getName())));
             I18n.get().send(p, "messages.feed.stats-full", 
                 Placeholder.parsed("mood", String.valueOf((int)moodAdd)),
                 Placeholder.parsed("exp", String.valueOf(expAdd)),
@@ -925,13 +926,13 @@ public class SpiritListener implements Listener {
             spirit.addMood(1);
             spirit.addHunger(1);
             
-            I18n.get().send(p, "messages.feed.success-snack", Placeholder.parsed("name", spirit.getName()));
+            I18n.get().send(p, "messages.feed.success-snack", Placeholder.component("name", I18n.get().asComponent(spirit.getName())));
         } 
         // 3. 非饥饿，心情 >= 80
         else {
             // 仅加1点饱食度
             spirit.addHunger(1);
-            I18n.get().send(p, "messages.feed.success-full-mood", Placeholder.parsed("name", spirit.getName()));
+            I18n.get().send(p, "messages.feed.success-full-mood", Placeholder.component("name", I18n.get().asComponent(spirit.getName())));
         }
 
         spirit.setExpression(SpiritSkinManager.Expression.HAPPY, 100);

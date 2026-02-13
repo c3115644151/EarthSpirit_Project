@@ -20,7 +20,7 @@ set "MAVEN_HOME_CUSTOM=C:\apache-maven-3.9.11-bin\apache-maven-3.9.11"
 
 if exist "%MAVEN_HOME_CUSTOM%\bin\mvn.cmd" (
     echo [INFO] Found Maven at custom path: %MAVEN_HOME_CUSTOM%
-    "%MAVEN_HOME_CUSTOM%\bin\mvn.cmd" clean package
+    call "%MAVEN_HOME_CUSTOM%\bin\mvn.cmd" clean package
     goto :end
 )
 
@@ -44,7 +44,7 @@ set MAVEN_DIR=%MAVEN_DIR:"=%
 
 if exist "%MAVEN_DIR%\bin\mvn.cmd" (
     echo [INFO] Found Maven at: %MAVEN_DIR%
-    "%MAVEN_DIR%\bin\mvn.cmd" clean package
+    call "%MAVEN_DIR%\bin\mvn.cmd" clean package
 ) else (
     echo.
     echo [ERROR] Could not find '\bin\mvn.cmd' in that folder.
@@ -54,7 +54,8 @@ if exist "%MAVEN_DIR%\bin\mvn.cmd" (
 :end
 echo.
 echo ==========================================
+echo Copying to plugins folder...
+copy target\EarthSpirit-1.0-SNAPSHOT.jar ..\plugins\
 echo Build process finished.
-echo Check the 'target' folder for the .jar file.
 echo ==========================================
 :: pause
